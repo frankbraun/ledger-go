@@ -26,3 +26,9 @@ By default invoice files and entries are a one-to-one mapping. In order to add t
 ```
     ; duplicate: true
 ```
+
+## Installing the binary
+
+```
+go install github.com/frankbraun/ledger-go/cmd/ledger-go@latest
+```
