@@ -1,4 +1,4 @@
-## ledger-go
+# ledger-go
 
 Simple tool that parses a subset of the [Ledger CLI](https://ledger-cli.org)
 command-line accounting file format.
