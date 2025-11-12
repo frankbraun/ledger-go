@@ -24,6 +24,7 @@ func fileExists(filename string) (bool, error) {
 type flags struct {
 	file           string
 	priceDB        string
+	noMetadata     string
 	strict         bool
 	noPager        bool
 	forecast       bool
@@ -37,6 +38,7 @@ func defineFlags() *flags {
 	var f flags
 	flag.StringVar(&f.file, "file", "", "Read journal data from FILE.")
 	flag.StringVar(&f.priceDB, "price-db", "", "Read price DB from FILE.")
+	flag.StringVar(&f.noMetadata, "no-metadata", "no-metadata.conf", "Read no metadata configruation from FILE.")
 	flag.BoolVar(&f.strict, "strict", false,
 		"Accounts or commodities  not  previously  declared  will cause warnings.")
 	flag.BoolVar(&f.noPager, "no-pager", false,
@@ -93,7 +95,7 @@ func main() {
 	}
 	// parse command line flags
 	flag.Parse()
-	l, err := ledger.New(f.file, f.strict, f.addMissingHashes)
+	l, err := ledger.New(f.file, f.strict, f.addMissingHashes, f.noMetadata)
 	if err != nil {
 		fatal(err)
 	}

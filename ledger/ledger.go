@@ -138,7 +138,11 @@ func (e *LedgerEntry) procHash(
 }
 
 // procMetadata checks if a single ledger entry has metadata and validates it.
-func (e *LedgerEntry) procMetadata(strict, addMissingHashes bool, ln int) error {
+func (e *LedgerEntry) procMetadata(
+	strict, addMissingHashes bool,
+	ln int,
+	noMetadata map[string]bool,
+) error {
 	filenameDefined := false
 	if e.Metadata != nil {
 		filename, ok := e.Metadata["file"]
@@ -171,8 +175,21 @@ func (e *LedgerEntry) procMetadata(strict, addMissingHashes bool, ln int) error 
 
 	// make sure file metadata is defined where needed
 	if !filenameDefined {
-		warning(fmt.Sprintf("file metadata missing for: %s %s",
-			e.Date.Format(DateFormat), e.Name))
+		skip := false
+		for _, a := range e.Accounts {
+			if noMetadata[a.Name] {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			// only enforce metadata lines for expenses or income
+			if strings.HasPrefix(e.Accounts[0].Name, "Expenses:") ||
+				strings.HasPrefix(e.Accounts[1].Name, "Income:") {
+				warning(fmt.Sprintf("file metadata missing for: %s %s",
+					e.Date.Format(DateFormat), e.Name))
+			}
+		}
 	}
 
 	return nil
@@ -194,6 +211,9 @@ type Ledger struct {
 	Accounts       map[string]bool
 	Tags           map[string]bool
 	Entries        []LedgerEntry
+
+	// config
+	NoMetadata map[string]bool
 }
 
 // parseAccount parses a single account line and returns a LedgerAccount.
@@ -254,6 +274,7 @@ func parseEntry(
 	addMissingHashes bool,
 	commodities map[string]bool,
 	accounts map[string]bool,
+	noMetadata map[string]bool,
 ) (*LedgerEntry, error) {
 	var (
 		e    LedgerEntry
@@ -314,7 +335,8 @@ func parseEntry(
 		(*ln)++
 		if line == "" {
 			// entry finished
-			if err := e.procMetadata(strict, addMissingHashes, *ln-1); err != nil {
+			err := e.procMetadata(strict, addMissingHashes, *ln-1, noMetadata)
+			if err != nil {
 				return nil, err
 			}
 			return &e, nil
@@ -355,14 +377,39 @@ func warning(warn string) {
 	fmt.Fprintf(os.Stderr, "%s: warning: %s\n", os.Args[0], warn)
 }
 
+func (l *Ledger) parseNoMetadataFile(noMetadataFilename string) error {
+	l.NoMetadata = make(map[string]bool)
+	if noMetadataFilename == "" {
+		return nil
+	}
+	fp, err := os.Open(noMetadataFilename)
+	if err != nil {
+		return err
+	}
+	defer fp.Close()
+	scanner := bufio.NewScanner(fp)
+	for scanner.Scan() {
+		l.NoMetadata[scanner.Text()] = true
+	}
+	return scanner.Err()
+}
+
 // New creates a new Ledger from a file, if strict is true, the ledger is
-// validated more strictly. If addMissingHashes is true, missing SHA256 hashes
-// are added to the ledger.
-func New(filename string, strict, addMissingHashes bool) (*Ledger, error) {
+// validated more strictly. If addMissingHashes is true, missing SHA256
+// hashes are added to the ledger. If noMetadataFilename is not empty, read
+// accounts for which no metadata is required from file.
+func New(
+	filename string,
+	strict, addMissingHashes bool,
+	noMetadataFilename string,
+) (*Ledger, error) {
 	var l Ledger
 	l.Commodities = make(map[string]bool)
 	l.Accounts = make(map[string]bool)
 	l.Tags = make(map[string]bool)
+	if err := l.parseNoMetadataFile(noMetadataFilename); err != nil {
+		return nil, err
+	}
 	fp, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -418,7 +465,7 @@ func New(filename string, strict, addMissingHashes bool) (*Ledger, error) {
 				continue
 			}
 			e, err := parseEntry(scanner, line, &ln, &previousDate, strict,
-				addMissingHashes, l.Commodities, l.Accounts)
+				addMissingHashes, l.Commodities, l.Accounts, l.NoMetadata)
 			if err != nil {
 				return nil, err
 			}
