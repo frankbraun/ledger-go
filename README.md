@@ -1,6 +1,6 @@
 ## ledger-go
 
-Simple tool that parses a subset of the [Ledger](https://ledger-cli.org)
+Simple tool that parses a subset of the [Ledger CLI](https://ledger-cli.org)
 command-line accounting file format.
 
 The main use case is to enforce that every entry is linked to an invoice file
@@ -9,7 +9,7 @@ via metadata annotations.
 Invoice files are like this:
 
 ```
-    ; file: /path/to/invoice.pdf    
+    ; file: /path/to/invoice.pdf
 ```
 
 The integrity of invoice files is ensured with SHA-256 hashes, annotated like
