@@ -1,7 +1,7 @@
 ## ledger-go
 
-Simple tool that parses a subset of the [Ledger]
-(https://ledger-cli.org) command-line accounting file format.
+Simple tool that parses a subset of the [Ledger](https://ledger-cli.org)
+command-line accounting file format.
 
 The main use case is to enforce that every entry is linked to an invoice file
 via metadata annotations.
