@@ -445,6 +445,310 @@ account Expenses:Food
 	})
 }
 
+func TestValidateMetadata(t *testing.T) {
+	t.Run("non-strict mode returns nil", func(t *testing.T) {
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file": "/nonexistent/file.pdf",
+					},
+				},
+			},
+		}
+		// Non-strict mode should return nil without checking anything
+		if err := l.validateMetadata(false); err != nil {
+			t.Errorf("validateMetadata(false) error = %v, want nil", err)
+		}
+	})
+
+	t.Run("entries without file metadata are skipped", func(t *testing.T) {
+		// Create invoices directory to satisfy validateSubtree
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{Metadata: map[string]string{}},
+				{Metadata: map[string]string{"note": "just a note"}},
+			},
+		}
+		if err := l.validateMetadata(true); err != nil {
+			t.Errorf("validateMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("duplicate flag skips validation", func(t *testing.T) {
+		// Create invoices directory and put file there to satisfy validateSubtree
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		file1 := filepath.Join("invoices", "invoice1.pdf")
+		if err := os.WriteFile(file1, []byte("test content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file":   file1,
+						"sha256": "abc123",
+					},
+				},
+				{
+					Metadata: map[string]string{
+						"file":      file1,
+						"sha256":    "abc123",
+						"duplicate": "true",
+					},
+				},
+			},
+		}
+		// Second entry is marked as duplicate, so should not error
+		if err := l.validateMetadata(true); err != nil {
+			t.Errorf("validateMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("duplicate file detection", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file":   file1,
+						"sha256": "hash1",
+					},
+				},
+				{
+					Metadata: map[string]string{
+						"file":   file1,
+						"sha256": "hash2",
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for duplicate file, got nil")
+		}
+		if !contains(err.Error(), "duplicate file") {
+			t.Errorf("error should mention duplicate file, got: %v", err)
+		}
+	})
+
+	t.Run("duplicate hash detection", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		file2 := filepath.Join(dir, "invoice2.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("content2"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file":   file1,
+						"sha256": "samehash",
+					},
+				},
+				{
+					Metadata: map[string]string{
+						"file":   file2,
+						"sha256": "samehash",
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for duplicate hash, got nil")
+		}
+		if !contains(err.Error(), "duplicate hash") {
+			t.Errorf("error should mention duplicate hash, got: %v", err)
+		}
+	})
+
+	t.Run("fileTwo duplicate file detection", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		file2 := filepath.Join(dir, "invoice2.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("content2"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file":      file1,
+						"sha256":    "hash1",
+						"fileTwo":   file2,
+						"sha256Two": "hash2",
+					},
+				},
+				{
+					Metadata: map[string]string{
+						"file":   file2,
+						"sha256": "hash3",
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for duplicate fileTwo, got nil")
+		}
+		if !contains(err.Error(), "duplicate file") {
+			t.Errorf("error should mention duplicate file, got: %v", err)
+		}
+	})
+
+	t.Run("fileTwo duplicate hash detection", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		file2 := filepath.Join(dir, "invoice2.pdf")
+		file3 := filepath.Join(dir, "invoice3.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("content2"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file3, []byte("content3"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file":      file1,
+						"sha256":    "hash1",
+						"fileTwo":   file2,
+						"sha256Two": "samehash",
+					},
+				},
+				{
+					Metadata: map[string]string{
+						"file":   file3,
+						"sha256": "samehash",
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for duplicate hash in fileTwo, got nil")
+		}
+		if !contains(err.Error(), "duplicate hash") {
+			t.Errorf("error should mention duplicate hash, got: %v", err)
+		}
+	})
+
+	t.Run("hash calculated when not provided", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		file2 := filepath.Join(dir, "invoice2.pdf")
+		// Same content = same hash
+		if err := os.WriteFile(file1, []byte("identical content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("identical content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file": file1,
+						// no sha256 provided - will be calculated
+					},
+				},
+				{
+					Metadata: map[string]string{
+						"file": file2,
+						// no sha256 provided - will be calculated
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for duplicate calculated hash, got nil")
+		}
+		if !contains(err.Error(), "duplicate hash") {
+			t.Errorf("error should mention duplicate hash, got: %v", err)
+		}
+	})
+
+	t.Run("hash calculation error for missing file", func(t *testing.T) {
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file": "/nonexistent/file.pdf",
+						// no sha256 provided - will try to calculate
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for missing file, got nil")
+		}
+		if !contains(err.Error(), "failed to calculate SHA256") {
+			t.Errorf("error should mention SHA256 calculation failure, got: %v", err)
+		}
+	})
+
+	t.Run("fileTwo hash calculation error", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l := &Ledger{
+			Entries: []LedgerEntry{
+				{
+					Metadata: map[string]string{
+						"file":    file1,
+						"sha256":  "hash1",
+						"fileTwo": "/nonexistent/file.pdf",
+						// no sha256Two provided - will try to calculate
+					},
+				},
+			},
+		}
+		err := l.validateMetadata(true)
+		if err == nil {
+			t.Fatal("validateMetadata() expected error for missing fileTwo, got nil")
+		}
+		if !contains(err.Error(), "failed to calculate SHA256") {
+			t.Errorf("error should mention SHA256 calculation failure, got: %v", err)
+		}
+	})
+}
+
 // contains checks if s contains substr
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
