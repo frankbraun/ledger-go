@@ -49,6 +49,62 @@ type LedgerEntry struct {
 	Metadata      map[string]string // optional
 }
 
+// balanceEpsilon is the tolerance for floating-point balance comparisons.
+const balanceEpsilon = 0.005
+
+// validateBalance checks that the entry is balanced (amounts sum to zero per commodity).
+// If exactly one account has an elided amount (no commodity), it calculates and sets
+// the missing amount. Returns an error if the entry is unbalanced or has multiple
+// elided amounts.
+func (e *LedgerEntry) validateBalance(startLine int) error {
+	// Find accounts with elided amounts (no commodity set)
+	var elidedIdx = -1
+	for i, a := range e.Accounts {
+		if a.Commodity == "" {
+			if elidedIdx >= 0 {
+				return fmt.Errorf("ledger: line %d: multiple accounts with elided amounts", startLine)
+			}
+			elidedIdx = i
+		}
+	}
+
+	// Sum amounts by commodity
+	sums := make(map[string]float64)
+	for i, a := range e.Accounts {
+		if i == elidedIdx {
+			continue // skip elided account for now
+		}
+		sums[a.Commodity] += a.Amount
+	}
+
+	// If there's an elided amount, calculate it
+	if elidedIdx >= 0 {
+		// There should be exactly one commodity used by other accounts
+		if len(sums) == 0 {
+			return fmt.Errorf("ledger: line %d: cannot infer elided amount without other amounts", startLine)
+		}
+		if len(sums) > 1 {
+			return fmt.Errorf("ledger: line %d: cannot infer elided amount with multiple commodities", startLine)
+		}
+		// Set the elided amount to balance the entry
+		for commodity, sum := range sums {
+			e.Accounts[elidedIdx].Amount = -sum
+			e.Accounts[elidedIdx].Commodity = commodity
+		}
+		return nil // entry is now balanced by construction
+	}
+
+	// No elided amount - verify each commodity sums to zero
+	for commodity, sum := range sums {
+		if sum < -balanceEpsilon || sum > balanceEpsilon {
+			return fmt.Errorf("ledger: line %d: entry not balanced for %s (off by %.2f)",
+				startLine, commodity, sum)
+		}
+	}
+
+	return nil
+}
+
 // Print prints the LedgerEntry to stdout.
 func (e *LedgerEntry) Print() {
 	if e.EffectiveDate.IsZero() {
@@ -272,9 +328,10 @@ func parseEntry(
 	noMetadata map[string]bool,
 ) (*LedgerEntry, error) {
 	var (
-		e    LedgerEntry
-		name string
-		err  error
+		e         LedgerEntry
+		name      string
+		err       error
+		startLine = *ln // remember starting line for error messages
 	)
 
 	// parse date line
@@ -329,9 +386,11 @@ func parseEntry(
 		line = scanner.Text()
 		(*ln)++
 		if line == "" {
-			// entry finished
-			err := e.procMetadata(strict, addMissingHashes, *ln-1, noMetadata)
-			if err != nil {
+			// entry finished - validate balance and metadata
+			if err := e.validateBalance(startLine); err != nil {
+				return nil, err
+			}
+			if err := e.procMetadata(strict, addMissingHashes, *ln-1, noMetadata); err != nil {
 				return nil, err
 			}
 			return &e, nil
@@ -362,6 +421,10 @@ func parseEntry(
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	// last entry in file (no trailing newline) - validate balance
+	if err := e.validateBalance(startLine); err != nil {
 		return nil, err
 	}
 	return &e, nil

@@ -816,13 +816,13 @@ account Expenses:Tips
 		if len(entry.Accounts) != 3 {
 			t.Errorf("Accounts len = %d, want 3", len(entry.Accounts))
 		}
-		// Last account should have no amount (elided)
-		if entry.Accounts[2].Amount != 0 || entry.Accounts[2].Commodity != "" {
-			t.Errorf("Third account should have elided amount, got %+v", entry.Accounts[2])
+		// Last account should have calculated amount to balance the entry
+		if entry.Accounts[2].Amount != -95.0 || entry.Accounts[2].Commodity != "EUR" {
+			t.Errorf("Third account should have calculated amount -95 EUR, got %+v", entry.Accounts[2])
 		}
 	})
 
-	t.Run("entry with single account", func(t *testing.T) {
+	t.Run("entry with single account fails balance", func(t *testing.T) {
 		dir := t.TempDir()
 		ledgerFile := filepath.Join(dir, "test.ledger")
 
@@ -832,6 +832,32 @@ account Assets:Bank
 
 2024/01/01 Opening balance
   Assets:Bank  1000,00 EUR
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for unbalanced entry, got nil")
+		}
+		if !contains(err.Error(), "not balanced") {
+			t.Errorf("error should mention not balanced, got: %v", err)
+		}
+	})
+
+	t.Run("entry with opening balance using equity", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Equity:Opening
+
+2024/01/01 Opening balance
+  Assets:Bank  1000,00 EUR
+  Equity:Opening  -1000,00 EUR
 `
 		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
 			t.Fatalf("failed to write test file: %v", err)
@@ -847,8 +873,8 @@ account Assets:Bank
 		}
 
 		entry := l.Entries[0]
-		if len(entry.Accounts) != 1 {
-			t.Errorf("Accounts len = %d, want 1", len(entry.Accounts))
+		if len(entry.Accounts) != 2 {
+			t.Errorf("Accounts len = %d, want 2", len(entry.Accounts))
 		}
 	})
 
@@ -1491,6 +1517,226 @@ func TestProcMetadata(t *testing.T) {
 		err := e.procMetadata(false, false, 1, nil)
 		if err != nil {
 			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+}
+
+func TestValidateBalance(t *testing.T) {
+	t.Run("balanced two-account entry", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 50.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: -50.0, Commodity: "EUR"},
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("balanced three-account entry", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 100.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: -70.0, Commodity: "EUR"},
+				{Name: "Assets:Cash", Amount: -30.0, Commodity: "EUR"},
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("unbalanced entry returns error", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 50.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: -40.0, Commodity: "EUR"},
+			},
+		}
+		err := e.validateBalance(5)
+		if err == nil {
+			t.Fatal("validateBalance() expected error, got nil")
+		}
+		if !contains(err.Error(), "not balanced") {
+			t.Errorf("error should mention not balanced, got: %v", err)
+		}
+		if !contains(err.Error(), "line 5") {
+			t.Errorf("error should mention line number, got: %v", err)
+		}
+		if !contains(err.Error(), "EUR") {
+			t.Errorf("error should mention commodity, got: %v", err)
+		}
+	})
+
+	t.Run("elided amount is calculated", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 80.0, Commodity: "EUR"},
+				{Name: "Expenses:Tips", Amount: 15.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: 0, Commodity: ""}, // elided
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
+		}
+		if e.Accounts[2].Amount != -95.0 {
+			t.Errorf("elided amount = %v, want -95.0", e.Accounts[2].Amount)
+		}
+		if e.Accounts[2].Commodity != "EUR" {
+			t.Errorf("elided commodity = %v, want EUR", e.Accounts[2].Commodity)
+		}
+	})
+
+	t.Run("multiple elided amounts returns error", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 50.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: 0, Commodity: ""},
+				{Name: "Assets:Cash", Amount: 0, Commodity: ""},
+			},
+		}
+		err := e.validateBalance(3)
+		if err == nil {
+			t.Fatal("validateBalance() expected error, got nil")
+		}
+		if !contains(err.Error(), "multiple accounts with elided amounts") {
+			t.Errorf("error should mention multiple elided amounts, got: %v", err)
+		}
+	})
+
+	t.Run("elided amount with no other amounts returns error", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank", Amount: 0, Commodity: ""},
+			},
+		}
+		err := e.validateBalance(1)
+		if err == nil {
+			t.Fatal("validateBalance() expected error, got nil")
+		}
+		if !contains(err.Error(), "cannot infer elided amount without other amounts") {
+			t.Errorf("error should mention cannot infer, got: %v", err)
+		}
+	})
+
+	t.Run("elided amount with multiple commodities returns error", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank", Amount: 100.0, Commodity: "EUR"},
+				{Name: "Assets:USD", Amount: 110.0, Commodity: "USD"},
+				{Name: "Expenses:Fees", Amount: 0, Commodity: ""}, // elided - which commodity?
+			},
+		}
+		err := e.validateBalance(1)
+		if err == nil {
+			t.Fatal("validateBalance() expected error, got nil")
+		}
+		if !contains(err.Error(), "cannot infer elided amount with multiple commodities") {
+			t.Errorf("error should mention multiple commodities, got: %v", err)
+		}
+	})
+
+	t.Run("balanced entry with floating-point precision", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 33.33, Commodity: "EUR"},
+				{Name: "Expenses:Tips", Amount: 33.33, Commodity: "EUR"},
+				{Name: "Expenses:Tax", Amount: 33.34, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: -100.0, Commodity: "EUR"},
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("small imbalance within epsilon passes", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 50.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: -50.004, Commodity: "EUR"}, // off by 0.004 < 0.005
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil (within epsilon)", err)
+		}
+	})
+
+	t.Run("imbalance exceeding epsilon fails", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food", Amount: 50.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: -50.01, Commodity: "EUR"}, // off by 0.01 > 0.005
+			},
+		}
+		err := e.validateBalance(1)
+		if err == nil {
+			t.Fatal("validateBalance() expected error for imbalance exceeding epsilon")
+		}
+	})
+
+	t.Run("multiple commodities each balanced", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Assets:EUR", Amount: -100.0, Commodity: "EUR"},
+				{Name: "Assets:USD", Amount: 110.0, Commodity: "USD"},
+				{Name: "Expenses:Exchange", Amount: 100.0, Commodity: "EUR"},
+				{Name: "Expenses:Exchange", Amount: -110.0, Commodity: "USD"},
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("multiple commodities one unbalanced", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Assets:EUR", Amount: -100.0, Commodity: "EUR"},
+				{Name: "Assets:USD", Amount: 110.0, Commodity: "USD"},
+				{Name: "Expenses:Exchange", Amount: 90.0, Commodity: "EUR"}, // EUR off by 10
+				{Name: "Expenses:Exchange", Amount: -110.0, Commodity: "USD"},
+			},
+		}
+		err := e.validateBalance(1)
+		if err == nil {
+			t.Fatal("validateBalance() expected error, got nil")
+		}
+		if !contains(err.Error(), "EUR") {
+			t.Errorf("error should mention EUR commodity, got: %v", err)
+		}
+	})
+
+	t.Run("elided amount first in list", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank", Amount: 0, Commodity: ""}, // elided first
+				{Name: "Expenses:Food", Amount: 50.0, Commodity: "EUR"},
+				{Name: "Expenses:Tips", Amount: 10.0, Commodity: "EUR"},
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
+		}
+		if e.Accounts[0].Amount != -60.0 {
+			t.Errorf("elided amount = %v, want -60.0", e.Accounts[0].Amount)
+		}
+		if e.Accounts[0].Commodity != "EUR" {
+			t.Errorf("elided commodity = %v, want EUR", e.Accounts[0].Commodity)
+		}
+	})
+
+	t.Run("negative amounts balance correctly", func(t *testing.T) {
+		e := &LedgerEntry{
+			Accounts: []LedgerAccount{
+				{Name: "Income:Salary", Amount: -3000.0, Commodity: "EUR"},
+				{Name: "Assets:Bank", Amount: 2500.0, Commodity: "EUR"},
+				{Name: "Expenses:Tax", Amount: 500.0, Commodity: "EUR"},
+			},
+		}
+		if err := e.validateBalance(1); err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
 		}
 	})
 }
