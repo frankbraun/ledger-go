@@ -226,19 +226,7 @@ func parseAccount(
 ) (LedgerAccount, error) {
 	var a LedgerAccount
 
-	// TODO
-	line = strings.ReplaceAll(line, "           ", " ")
-	line = strings.ReplaceAll(line, "          ", " ")
-	line = strings.ReplaceAll(line, "         ", " ")
-	line = strings.ReplaceAll(line, "        ", " ")
-	line = strings.ReplaceAll(line, "       ", " ")
-	line = strings.ReplaceAll(line, "      ", " ")
-	line = strings.ReplaceAll(line, "     ", " ")
-	line = strings.ReplaceAll(line, "    ", " ")
-	line = strings.ReplaceAll(line, "   ", " ")
-	line = strings.ReplaceAll(line, "  ", " ")
-
-	elems := strings.Split(line, " ")
+	elems := strings.Fields(line)
 	if len(elems) != 3 && len(elems) != 1 {
 		return a, fmt.Errorf("ledger: line %d: doesn't have 3 or 1 element(s)", ln)
 	}
