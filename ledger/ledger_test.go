@@ -10,19 +10,22 @@ import (
 )
 
 func TestParseAccount(t *testing.T) {
-	commodities := map[string]bool{"EUR": true, "USD": true}
-	accounts := map[string]bool{"Assets:Bank": true, "Expenses:Food": true}
+	commodities := map[string]bool{"EUR": true, "USD": true, "BTC": true}
+	accounts := map[string]bool{"Assets:Bank": true, "Expenses:Food": true, "Assets:Bitcoin": true}
 
 	tests := []struct {
-		name        string
-		line        string
-		ln          int
-		strict      bool
-		wantName    string
-		wantAmount  float64
-		wantComm    string
-		wantErr     bool
-		errContains string
+		name           string
+		line           string
+		ln             int
+		strict         bool
+		wantName       string
+		wantAmount     float64
+		wantComm       string
+		wantPriceType  string
+		wantPriceAmt   float64
+		wantPriceComm  string
+		wantErr        bool
+		errContains    string
 	}{
 		{
 			name:       "valid account with amount",
@@ -86,7 +89,7 @@ func TestParseAccount(t *testing.T) {
 			ln:          3,
 			strict:      false,
 			wantErr:     true,
-			errContains: "doesn't have 3 or 1 element",
+			errContains: "invalid account format",
 		},
 		{
 			name:        "invalid amount format",
@@ -95,6 +98,86 @@ func TestParseAccount(t *testing.T) {
 			strict:      false,
 			wantErr:     true,
 			errContains: "invalid syntax",
+		},
+		// Price annotation tests
+		{
+			name:          "valid per-unit price",
+			line:          "Assets:Bitcoin  -0,50 BTC @ 302,48 EUR",
+			ln:            1,
+			strict:        false,
+			wantName:      "Assets:Bitcoin",
+			wantAmount:    -0.50,
+			wantComm:      "BTC",
+			wantPriceType: "@",
+			wantPriceAmt:  302.48,
+			wantPriceComm: "EUR",
+			wantErr:       false,
+		},
+		{
+			name:          "valid total cost",
+			line:          "Assets:Bitcoin  -0,50 BTC @@ 151,24 EUR",
+			ln:            1,
+			strict:        false,
+			wantName:      "Assets:Bitcoin",
+			wantAmount:    -0.50,
+			wantComm:      "BTC",
+			wantPriceType: "@@",
+			wantPriceAmt:  151.24,
+			wantPriceComm: "EUR",
+			wantErr:       false,
+		},
+		{
+			name:          "price with decimal point",
+			line:          "Assets:Bitcoin  1.5 BTC @ 50000.00 USD",
+			ln:            1,
+			strict:        false,
+			wantName:      "Assets:Bitcoin",
+			wantAmount:    1.5,
+			wantComm:      "BTC",
+			wantPriceType: "@",
+			wantPriceAmt:  50000.00,
+			wantPriceComm: "USD",
+			wantErr:       false,
+		},
+		{
+			name:        "invalid price annotation symbol",
+			line:        "Assets:Bitcoin  -0,50 BTC # 302,48 EUR",
+			ln:          1,
+			strict:      false,
+			wantErr:     true,
+			errContains: "invalid price annotation",
+		},
+		{
+			name:        "invalid price amount",
+			line:        "Assets:Bitcoin  -0,50 BTC @ notanumber EUR",
+			ln:          1,
+			strict:      false,
+			wantErr:     true,
+			errContains: "invalid price amount",
+		},
+		{
+			name:        "strict mode unknown price commodity",
+			line:        "Assets:Bitcoin  -0,50 BTC @ 302,48 GBP",
+			ln:          1,
+			strict:      true,
+			wantErr:     true,
+			errContains: "price commodity unknown",
+		},
+		{
+			name:        "incomplete price annotation (4 elements)",
+			line:        "Assets:Bitcoin  -0,50 BTC @",
+			ln:          1,
+			strict:      false,
+			wantErr:     true,
+			errContains: "invalid account format",
+		},
+		{
+			name:        "incomplete price annotation (5 elements)",
+			line:        "Assets:Bitcoin  -0,50 BTC @ 302,48",
+			ln:          1,
+			strict:      false,
+			wantErr:     true,
+			errContains: "invalid account format",
 		},
 	}
 
@@ -126,6 +209,15 @@ func TestParseAccount(t *testing.T) {
 			}
 			if got.Commodity != tt.wantComm {
 				t.Errorf("parseAccount() Commodity = %v, want %v", got.Commodity, tt.wantComm)
+			}
+			if got.PriceType != tt.wantPriceType {
+				t.Errorf("parseAccount() PriceType = %v, want %v", got.PriceType, tt.wantPriceType)
+			}
+			if got.PriceAmount != tt.wantPriceAmt {
+				t.Errorf("parseAccount() PriceAmount = %v, want %v", got.PriceAmount, tt.wantPriceAmt)
+			}
+			if got.PriceCommodity != tt.wantPriceComm {
+				t.Errorf("parseAccount() PriceCommodity = %v, want %v", got.PriceCommodity, tt.wantPriceComm)
 			}
 		})
 	}
@@ -920,6 +1012,305 @@ account Expenses:Food
 			t.Errorf("Metadata file = %s, want %s", entry.Metadata["file"], invoiceFile)
 		}
 	})
+
+	t.Run("entry with per-unit price annotation", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		// Price annotation converts BTC to EUR for balance: 0.50 * 302.48 = 151.24 EUR
+		content := `commodity EUR
+commodity BTC
+
+account Assets:Bank
+account Assets:Bitcoin
+
+2024/01/01 Buy Bitcoin
+  Assets:Bitcoin  0,50 BTC @ 302,48 EUR
+  Assets:Bank  -151,24 EUR
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if entry.Accounts[0].PriceType != "@" {
+			t.Errorf("PriceType = %v, want @", entry.Accounts[0].PriceType)
+		}
+		if entry.Accounts[0].PriceAmount != 302.48 {
+			t.Errorf("PriceAmount = %v, want 302.48", entry.Accounts[0].PriceAmount)
+		}
+		if entry.Accounts[0].PriceCommodity != "EUR" {
+			t.Errorf("PriceCommodity = %v, want EUR", entry.Accounts[0].PriceCommodity)
+		}
+	})
+
+	t.Run("entry with total cost annotation", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		// Total cost annotation: @@ means 151.24 EUR is the total cost
+		content := `commodity EUR
+commodity BTC
+
+account Assets:Bank
+account Assets:Bitcoin
+
+2024/01/01 Buy Bitcoin
+  Assets:Bitcoin  0,50 BTC @@ 151,24 EUR
+  Assets:Bank  -151,24 EUR
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if entry.Accounts[0].PriceType != "@@" {
+			t.Errorf("PriceType = %v, want @@", entry.Accounts[0].PriceType)
+		}
+		if entry.Accounts[0].PriceAmount != 151.24 {
+			t.Errorf("PriceAmount = %v, want 151.24", entry.Accounts[0].PriceAmount)
+		}
+	})
+
+	t.Run("entry with price annotation and metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+		invoiceFile := filepath.Join(dir, "invoice.pdf")
+
+		if err := os.WriteFile(invoiceFile, []byte("pdf content"), 0644); err != nil {
+			t.Fatalf("failed to write invoice file: %v", err)
+		}
+
+		// Price annotation converts BTC to EUR for balance
+		content := `commodity EUR
+commodity BTC
+
+account Assets:Bank
+account Assets:Bitcoin
+
+2024/01/01 Buy Bitcoin
+  Assets:Bitcoin  0,50 BTC @ 302,48 EUR
+  Assets:Bank  -151,24 EUR
+  ; file: ` + invoiceFile + `
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if entry.Accounts[0].PriceType != "@" {
+			t.Errorf("PriceType = %v, want @", entry.Accounts[0].PriceType)
+		}
+		if entry.Metadata["file"] != invoiceFile {
+			t.Errorf("Metadata file = %s, want %s", entry.Metadata["file"], invoiceFile)
+		}
+	})
+
+	t.Run("entry with price annotation and elided amount", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		// Elided amount should be inferred from price conversion: -0.50 * 302.48 = -151.24 EUR
+		content := `commodity EUR
+commodity BTC
+
+account Assets:Bank
+account Assets:Bitcoin
+
+2024/01/01 Buy Bitcoin
+  Assets:Bitcoin  0,50 BTC @ 302,48 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		// The elided amount should be calculated as -151.24 EUR
+		if entry.Accounts[1].Amount != -151.24 {
+			t.Errorf("Elided Amount = %v, want -151.24", entry.Accounts[1].Amount)
+		}
+		if entry.Accounts[1].Commodity != "EUR" {
+			t.Errorf("Elided Commodity = %v, want EUR", entry.Accounts[1].Commodity)
+		}
+	})
+
+	t.Run("entry with total cost and elided amount", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		// Elided amount should be inferred from total cost: -151.24 EUR
+		content := `commodity EUR
+commodity BTC
+
+account Assets:Bank
+account Assets:Bitcoin
+
+2024/01/01 Buy Bitcoin
+  Assets:Bitcoin  0,50 BTC @@ 151,24 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		// The elided amount should be calculated as -151.24 EUR
+		if entry.Accounts[1].Amount != -151.24 {
+			t.Errorf("Elided Amount = %v, want -151.24", entry.Accounts[1].Amount)
+		}
+		if entry.Accounts[1].Commodity != "EUR" {
+			t.Errorf("Elided Commodity = %v, want EUR", entry.Accounts[1].Commodity)
+		}
+	})
+
+	t.Run("sell with price annotation and elided amount", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		// Selling BTC: negative amount with price, elided should be positive EUR
+		content := `commodity EUR
+commodity BTC
+
+account Assets:Bank
+account Assets:Bitcoin
+
+2024/01/01 Sell Bitcoin
+  Assets:Bitcoin  -0,50 BTC @ 302,48 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		// Selling 0.50 BTC @ 302.48 = -151.24 EUR balance, so elided = +151.24 EUR
+		if entry.Accounts[1].Amount != 151.24 {
+			t.Errorf("Elided Amount = %v, want 151.24", entry.Accounts[1].Amount)
+		}
+		if entry.Accounts[1].Commodity != "EUR" {
+			t.Errorf("Elided Commodity = %v, want EUR", entry.Accounts[1].Commodity)
+		}
+	})
+
+	t.Run("opening balance with multiple commodities and elided equity", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		// Multi-commodity opening balance with elided Equity account
+		// The elided account implicitly receives balancing amounts for each commodity
+		content := `commodity EUR
+commodity USD
+commodity GBP
+commodity BTC
+commodity XAU
+
+account Assets:Cash
+account Assets:Checkings
+account Assets:Savings
+account Assets:Bitcoin
+account Assets:Gold
+account Liabilities:CreditCard
+account Liabilities:Loan
+account Equity:Opening
+
+2015/01/01 Initial Balances
+  Assets:Cash                            100,00 EUR
+  Assets:Cash                             50,00 USD
+  Assets:Cash                             25,00 GBP
+  Assets:Checkings                       500,00 EUR
+  Assets:Savings                        1000,00 EUR
+  Assets:Bitcoin                    1,50000000 BTC
+  Assets:Gold                              0,25 XAU
+  Liabilities:CreditCard                -200,00 EUR
+  Liabilities:Loan                      -500,00 USD
+  Equity:Opening
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if len(entry.Accounts) != 10 {
+			t.Errorf("Accounts len = %d, want 10", len(entry.Accounts))
+		}
+
+		// The elided Equity:Opening account should have no amount/commodity set
+		// (because it implicitly receives balancing amounts for multiple commodities)
+		elidedAccount := entry.Accounts[9]
+		if elidedAccount.Name != "Equity:Opening" {
+			t.Errorf("Last account Name = %v, want Equity:Opening", elidedAccount.Name)
+		}
+		if elidedAccount.Commodity != "" {
+			t.Errorf("Elided account Commodity = %v, want empty", elidedAccount.Commodity)
+		}
+		if elidedAccount.Amount != 0 {
+			t.Errorf("Elided account Amount = %v, want 0", elidedAccount.Amount)
+		}
+	})
 }
 
 func TestProcFilename(t *testing.T) {
@@ -1620,20 +2011,23 @@ func TestValidateBalance(t *testing.T) {
 		}
 	})
 
-	t.Run("elided amount with multiple commodities returns error", func(t *testing.T) {
+	t.Run("elided amount with multiple commodities allowed", func(t *testing.T) {
+		// Multi-commodity entries with elided amount are allowed (like opening balances)
+		// The elided account implicitly receives balancing amounts for each commodity
 		e := &LedgerEntry{
 			Accounts: []LedgerAccount{
 				{Name: "Assets:Bank", Amount: 100.0, Commodity: "EUR"},
 				{Name: "Assets:USD", Amount: 110.0, Commodity: "USD"},
-				{Name: "Expenses:Fees", Amount: 0, Commodity: ""}, // elided - which commodity?
+				{Name: "Equity:Opening", Amount: 0, Commodity: ""}, // elided
 			},
 		}
 		err := e.validateBalance(1)
-		if err == nil {
-			t.Fatal("validateBalance() expected error, got nil")
+		if err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
 		}
-		if !contains(err.Error(), "cannot infer elided amount with multiple commodities") {
-			t.Errorf("error should mention multiple commodities, got: %v", err)
+		// Elided account should remain unchanged (no single commodity can be set)
+		if e.Accounts[2].Commodity != "" {
+			t.Errorf("elided Commodity = %v, want empty", e.Accounts[2].Commodity)
 		}
 	})
 
@@ -1690,21 +2084,17 @@ func TestValidateBalance(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple commodities one unbalanced", func(t *testing.T) {
+	t.Run("multiple commodities no balance required", func(t *testing.T) {
+		// Multi-commodity entries don't require balancing (like currency exchange)
 		e := &LedgerEntry{
 			Accounts: []LedgerAccount{
-				{Name: "Assets:EUR", Amount: -100.0, Commodity: "EUR"},
-				{Name: "Assets:USD", Amount: 110.0, Commodity: "USD"},
-				{Name: "Expenses:Exchange", Amount: 90.0, Commodity: "EUR"}, // EUR off by 10
-				{Name: "Expenses:Exchange", Amount: -110.0, Commodity: "USD"},
+				{Name: "Assets:Cash", Amount: 160.0, Commodity: "USD"},
+				{Name: "Assets:Checkings", Amount: -130.36, Commodity: "EUR"},
 			},
 		}
 		err := e.validateBalance(1)
-		if err == nil {
-			t.Fatal("validateBalance() expected error, got nil")
-		}
-		if !contains(err.Error(), "EUR") {
-			t.Errorf("error should mention EUR commodity, got: %v", err)
+		if err != nil {
+			t.Errorf("validateBalance() error = %v, want nil", err)
 		}
 	})
 

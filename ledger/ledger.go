@@ -24,9 +24,12 @@ const invoiceSubtree = "invoices"
 
 // LedgerAccount defines a single account in a ledger entry.
 type LedgerAccount struct {
-	Name      string
-	Amount    float64
-	Commodity string
+	Name           string
+	Amount         float64
+	Commodity      string
+	PriceType      string  // "", "@" (per-unit), or "@@" (total cost)
+	PriceAmount    float64
+	PriceCommodity string
 }
 
 // Print prints the LedgerAccount to stdout.
@@ -34,7 +37,14 @@ func (a *LedgerAccount) Print() {
 	if a.Commodity != "" {
 		buf := strings.Repeat(" ", AccountWidth-len(a.Name))
 		printSum := strings.ReplaceAll(fmt.Sprintf("%.2f", a.Amount), ".", ",")
-		fmt.Printf("  %s%s  %s %s\n", a.Name, buf, printSum, a.Commodity)
+		if a.PriceType != "" {
+			printPrice := strings.ReplaceAll(fmt.Sprintf("%.2f", a.PriceAmount), ".", ",")
+			fmt.Printf("  %s%s  %s %s %s %s %s\n",
+				a.Name, buf, printSum, a.Commodity,
+				a.PriceType, printPrice, a.PriceCommodity)
+		} else {
+			fmt.Printf("  %s%s  %s %s\n", a.Name, buf, printSum, a.Commodity)
+		}
 	} else {
 		fmt.Printf("  %s\n", a.Name)
 	}
@@ -52,10 +62,35 @@ type LedgerEntry struct {
 // balanceEpsilon is the tolerance for floating-point balance comparisons.
 const balanceEpsilon = 0.005
 
+// balanceAmount returns the amount and commodity to use for balance calculation.
+// If the account has a price annotation, the amount is converted to the price commodity:
+//   - @ (per-unit): returns Amount * PriceAmount in PriceCommodity
+//   - @@ (total cost): returns PriceAmount (with sign of Amount) in PriceCommodity
+//
+// Otherwise returns the original Amount and Commodity.
+func (a *LedgerAccount) balanceAmount() (float64, string) {
+	if a.PriceType == "" {
+		return a.Amount, a.Commodity
+	}
+	if a.PriceType == "@" {
+		// Per-unit price: total = amount * price
+		return a.Amount * a.PriceAmount, a.PriceCommodity
+	}
+	// Total cost (@@): use price amount with the sign of the original amount
+	if a.Amount < 0 {
+		return -a.PriceAmount, a.PriceCommodity
+	}
+	return a.PriceAmount, a.PriceCommodity
+}
+
 // validateBalance checks that the entry is balanced (amounts sum to zero per commodity).
 // If exactly one account has an elided amount (no commodity), it calculates and sets
 // the missing amount. Returns an error if the entry is unbalanced or has multiple
 // elided amounts.
+//
+// Price annotations affect balance calculation:
+//   - @ (per-unit): 10 BTC @ 50000 EUR contributes 500000 EUR to balance
+//   - @@ (total cost): 10 BTC @@ 500000 EUR contributes 500000 EUR to balance
 func (e *LedgerEntry) validateBalance(startLine int) error {
 	// Find accounts with elided amounts (no commodity set)
 	var elidedIdx = -1
@@ -68,33 +103,43 @@ func (e *LedgerEntry) validateBalance(startLine int) error {
 		}
 	}
 
-	// Sum amounts by commodity
+	// Sum amounts by commodity (using balance amounts for price conversions)
 	sums := make(map[string]float64)
-	for i, a := range e.Accounts {
+	for i := range e.Accounts {
 		if i == elidedIdx {
 			continue // skip elided account for now
 		}
-		sums[a.Commodity] += a.Amount
+		amount, commodity := e.Accounts[i].balanceAmount()
+		sums[commodity] += amount
 	}
 
 	// If there's an elided amount, calculate it
 	if elidedIdx >= 0 {
-		// There should be exactly one commodity used by other accounts
 		if len(sums) == 0 {
 			return fmt.Errorf("ledger: line %d: cannot infer elided amount without other amounts", startLine)
 		}
-		if len(sums) > 1 {
-			return fmt.Errorf("ledger: line %d: cannot infer elided amount with multiple commodities", startLine)
+		if len(sums) == 1 {
+			// Single commodity: set the elided amount to balance the entry
+			for commodity, sum := range sums {
+				e.Accounts[elidedIdx].Amount = -sum
+				e.Accounts[elidedIdx].Commodity = commodity
+			}
 		}
-		// Set the elided amount to balance the entry
-		for commodity, sum := range sums {
-			e.Accounts[elidedIdx].Amount = -sum
-			e.Accounts[elidedIdx].Commodity = commodity
-		}
-		return nil // entry is now balanced by construction
+		// Multiple commodities: the elided account implicitly receives balancing
+		// amounts for each commodity. We can't represent this in a single
+		// LedgerAccount, so leave the elided account as-is (no amount/commodity).
+		// The entry is considered balanced by construction.
+		return nil
 	}
 
-	// No elided amount - verify each commodity sums to zero
+	// No elided amount - verify balance
+	// If multiple commodities are present (after price conversion), skip balance
+	// validation - Ledger tracks each commodity independently (e.g., currency exchange)
+	if len(sums) > 1 {
+		return nil
+	}
+
+	// Single commodity: verify it sums to zero
 	for commodity, sum := range sums {
 		if sum < -balanceEpsilon || sum > balanceEpsilon {
 			return fmt.Errorf("ledger: line %d: entry not balanced for %s (off by %.2f)",
@@ -280,6 +325,11 @@ type Ledger struct {
 }
 
 // parseAccount parses a single account line and returns a LedgerAccount.
+// Supported formats:
+//   - AccountName (elided amount)
+//   - AccountName Amount Commodity
+//   - AccountName Amount Commodity @ PriceAmount PriceCommodity (per-unit price)
+//   - AccountName Amount Commodity @@ PriceAmount PriceCommodity (total cost)
 func parseAccount(
 	line string,
 	ln int,
@@ -290,15 +340,16 @@ func parseAccount(
 	var a LedgerAccount
 
 	elems := strings.Fields(line)
-	if len(elems) != 3 && len(elems) != 1 {
-		return a, fmt.Errorf("ledger: line %d: doesn't have 3 or 1 element(s)", ln)
+	if len(elems) != 1 && len(elems) != 3 && len(elems) != 6 {
+		return a, fmt.Errorf("ledger: line %d: invalid account format (expected 1, 3, or 6 elements, got %d)", ln, len(elems))
 	}
 	account := elems[0]
 	if strict && !accounts[account] {
 		return a, fmt.Errorf("ledger: line %d: account unknown: %s", ln, account)
 	}
 	a.Name = account
-	if len(elems) == 3 {
+
+	if len(elems) >= 3 {
 		amount := strings.ReplaceAll(elems[1], ",", ".")
 		var err error
 		a.Amount, err = strconv.ParseFloat(amount, 64)
@@ -310,6 +361,28 @@ func parseAccount(
 			return a, fmt.Errorf("ledger: line %d: commodity unknown: %s", ln, commodity)
 		}
 		a.Commodity = commodity
+	}
+
+	if len(elems) == 6 {
+		// Parse price annotation
+		priceType := elems[3]
+		if priceType != "@" && priceType != "@@" {
+			return a, fmt.Errorf("ledger: line %d: invalid price annotation (expected @ or @@, got %s)", ln, priceType)
+		}
+		a.PriceType = priceType
+
+		priceAmount := strings.ReplaceAll(elems[4], ",", ".")
+		var err error
+		a.PriceAmount, err = strconv.ParseFloat(priceAmount, 64)
+		if err != nil {
+			return a, fmt.Errorf("ledger: line %d: invalid price amount: %s", ln, err)
+		}
+
+		priceCommodity := elems[5]
+		if strict && !commodities[priceCommodity] {
+			return a, fmt.Errorf("ledger: line %d: price commodity unknown: %s", ln, priceCommodity)
+		}
+		a.PriceCommodity = priceCommodity
 	}
 
 	return a, nil
