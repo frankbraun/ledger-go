@@ -35,7 +35,11 @@ type LedgerAccount struct {
 // Print prints the LedgerAccount to stdout.
 func (a *LedgerAccount) Print() {
 	if a.Commodity != "" {
-		buf := strings.Repeat(" ", AccountWidth-len(a.Name))
+		padding := AccountWidth - len(a.Name)
+		if padding < 1 {
+			padding = 1
+		}
+		buf := strings.Repeat(" ", padding)
 		printSum := strings.ReplaceAll(fmt.Sprintf("%.2f", a.Amount), ".", ",")
 		if a.PriceType != "" {
 			printPrice := strings.ReplaceAll(fmt.Sprintf("%.2f", a.PriceAmount), ".", ",")
