@@ -40,7 +40,7 @@ func (a *LedgerAccount) Print() {
 	}
 }
 
-// LedgerEntry represents a single entry in the ledger, using at least two accounts.
+// LedgerEntry represents a single entry in the ledger with one or more accounts.
 type LedgerEntry struct {
 	Date          time.Time
 	EffectiveDate time.Time
@@ -184,8 +184,15 @@ func (e *LedgerEntry) procMetadata(
 		}
 		if !skip {
 			// only enforce metadata lines for expenses or income
-			if strings.HasPrefix(e.Accounts[0].Name, "Expenses:") ||
-				strings.HasPrefix(e.Accounts[1].Name, "Income:") {
+			hasExpenseOrIncome := false
+			for _, a := range e.Accounts {
+				if strings.HasPrefix(a.Name, "Expenses:") ||
+					strings.HasPrefix(a.Name, "Income:") {
+					hasExpenseOrIncome = true
+					break
+				}
+			}
+			if hasExpenseOrIncome {
 				warning(fmt.Sprintf("file metadata missing for: %s %s",
 					e.Date.Format(DateFormat), e.Name))
 			}

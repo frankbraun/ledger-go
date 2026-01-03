@@ -704,6 +704,196 @@ account Expenses:Food
 			t.Fatalf("New() error: %v", err)
 		}
 	})
+
+	t.Run("entry with three accounts", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Assets:Cash
+account Expenses:Food
+
+2024/01/01 Split payment at grocery store
+  Expenses:Food  100,00 EUR
+  Assets:Bank  -70,00 EUR
+  Assets:Cash  -30,00 EUR
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if len(entry.Accounts) != 3 {
+			t.Errorf("Accounts len = %d, want 3", len(entry.Accounts))
+		}
+		if entry.Accounts[0].Name != "Expenses:Food" || entry.Accounts[0].Amount != 100.0 {
+			t.Errorf("First account = %+v, want Expenses:Food 100.0", entry.Accounts[0])
+		}
+		if entry.Accounts[1].Name != "Assets:Bank" || entry.Accounts[1].Amount != -70.0 {
+			t.Errorf("Second account = %+v, want Assets:Bank -70.0", entry.Accounts[1])
+		}
+		if entry.Accounts[2].Name != "Assets:Cash" || entry.Accounts[2].Amount != -30.0 {
+			t.Errorf("Third account = %+v, want Assets:Cash -30.0", entry.Accounts[2])
+		}
+	})
+
+	t.Run("entry with four accounts", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Assets:Cash
+account Expenses:Food
+account Expenses:Tips
+
+2024/01/01 Restaurant with tip split
+  Expenses:Food  80,00 EUR
+  Expenses:Tips  15,00 EUR
+  Assets:Bank  -50,00 EUR
+  Assets:Cash  -45,00 EUR
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if len(entry.Accounts) != 4 {
+			t.Errorf("Accounts len = %d, want 4", len(entry.Accounts))
+		}
+	})
+
+	t.Run("entry with one account and elided amount", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+account Expenses:Tips
+
+2024/01/01 Restaurant with tip
+  Expenses:Food  80,00 EUR
+  Expenses:Tips  15,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if len(entry.Accounts) != 3 {
+			t.Errorf("Accounts len = %d, want 3", len(entry.Accounts))
+		}
+		// Last account should have no amount (elided)
+		if entry.Accounts[2].Amount != 0 || entry.Accounts[2].Commodity != "" {
+			t.Errorf("Third account should have elided amount, got %+v", entry.Accounts[2])
+		}
+	})
+
+	t.Run("entry with single account", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+
+2024/01/01 Opening balance
+  Assets:Bank  1000,00 EUR
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if len(entry.Accounts) != 1 {
+			t.Errorf("Accounts len = %d, want 1", len(entry.Accounts))
+		}
+	})
+
+	t.Run("multi-account entry with metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+		invoiceFile := filepath.Join(dir, "invoice.pdf")
+
+		if err := os.WriteFile(invoiceFile, []byte("pdf content"), 0644); err != nil {
+			t.Fatalf("failed to write invoice file: %v", err)
+		}
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Assets:Cash
+account Expenses:Food
+
+2024/01/01 Split payment at grocery store
+  Expenses:Food  100,00 EUR
+  Assets:Bank  -70,00 EUR
+  Assets:Cash  -30,00 EUR
+  ; file: ` + invoiceFile + `
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+
+		if len(l.Entries) != 1 {
+			t.Fatalf("Entries len = %d, want 1", len(l.Entries))
+		}
+
+		entry := l.Entries[0]
+		if len(entry.Accounts) != 3 {
+			t.Errorf("Accounts len = %d, want 3", len(entry.Accounts))
+		}
+		if entry.Metadata["file"] != invoiceFile {
+			t.Errorf("Metadata file = %s, want %s", entry.Metadata["file"], invoiceFile)
+		}
+	})
 }
 
 func TestProcFilename(t *testing.T) {
@@ -1242,6 +1432,62 @@ func TestProcMetadata(t *testing.T) {
 			},
 		}
 
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("entry with single Expenses account", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Single expense",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+			},
+		}
+
+		// Should not panic with only one account
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("entry with three accounts including Expenses", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Multi-account expense",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank"},
+				{Name: "Assets:Cash"},
+				{Name: "Expenses:Food"},
+			},
+		}
+
+		// Should check all accounts for Expenses/Income, not just first two
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("entry with four accounts Income in third position", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Complex income entry",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank"},
+				{Name: "Assets:Cash"},
+				{Name: "Income:Salary"},
+				{Name: "Liabilities:Tax"},
+			},
+		}
+
+		// Should check all accounts for Expenses/Income
 		err := e.procMetadata(false, false, 1, nil)
 		if err != nil {
 			t.Errorf("procMetadata() error = %v, want nil", err)
