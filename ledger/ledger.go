@@ -30,11 +30,15 @@ type LedgerAccount struct {
 	PriceType      string  // "", "@" (per-unit), or "@@" (total cost)
 	PriceAmount    float64
 	PriceCommodity string
+	Elided         bool    // true if amount was originally elided (not specified in input)
 }
 
 // Print prints the LedgerAccount to stdout.
 func (a *LedgerAccount) Print() {
-	if a.Commodity != "" {
+	if a.Elided {
+		// Print without amount if it was originally elided
+		fmt.Printf("  %s\n", a.Name)
+	} else if a.Commodity != "" {
 		padding := AccountWidth - len(a.Name)
 		if padding < 1 {
 			padding = 1
@@ -129,6 +133,8 @@ func (e *LedgerEntry) validateBalance(startLine int) error {
 				e.Accounts[elidedIdx].Commodity = commodity
 			}
 		}
+		// Mark as elided so Print() omits the amount
+		e.Accounts[elidedIdx].Elided = true
 		// Multiple commodities: the elided account implicitly receives balancing
 		// amounts for each commodity. We can't represent this in a single
 		// LedgerAccount, so leave the elided account as-is (no amount/commodity).
