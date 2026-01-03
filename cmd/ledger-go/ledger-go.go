@@ -22,13 +22,11 @@ func fileExists(filename string) (bool, error) {
 }
 
 type flags struct {
-	file           string
-	priceDB        string
-	noMetadata     string
-	strict         bool
-	noPager        bool
-	forecast       bool
-	includeCurrent bool
+	file       string
+	priceDB    string
+	noMetadata string
+	strict     bool
+	noPager    bool
 
 	// extensions
 	addMissingHashes bool
@@ -43,10 +41,6 @@ func defineFlags() *flags {
 		"Accounts or commodities  not  previously  declared  will cause warnings.")
 	flag.BoolVar(&f.noPager, "no-pager", false,
 		"Disables the pager on TTY output.")
-	flag.BoolVar(&f.forecast, "forecast", false,
-		"Forecast based on average of last (up to) 12 months.")
-	flag.BoolVar(&f.includeCurrent, "include-current", false,
-		"Include current month in forecast.")
 
 	// extensions
 	flag.BoolVar(&f.addMissingHashes, "add-missing-hashes", false,
@@ -99,11 +93,5 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if f.forecast {
-		if err := l.Forecast(f.includeCurrent); err != nil {
-			fatal(err)
-		}
-	} else {
-		l.Print()
-	}
+	l.Print()
 }

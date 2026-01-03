@@ -23,8 +23,6 @@ ledger-go -file <ledger-file> [options]
 - `-strict` - Enable strict validation (checks accounts/commodities are declared, verifies hashes)
 - `-add-missing-hashes` - Automatically add SHA-256 hashes for invoice files
 - `-no-metadata` - Config file listing accounts that don't require metadata (default: no-metadata.conf)
-- `-forecast` - Generate expense forecast based on last 12 months
-- `-include-current` - Include current month in forecast calculations
 
 ## Architecture
 
