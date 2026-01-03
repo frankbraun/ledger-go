@@ -446,6 +446,264 @@ account Expenses:Food
 			t.Error("NoMetadata should contain Expenses:Food")
 		}
 	})
+
+	t.Run("invalid date format", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+01-01-2024 Invalid date format
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for invalid date format, got nil")
+		}
+	})
+
+	t.Run("invalid effective date format", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01=invalid Delayed payment
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for invalid effective date format, got nil")
+		}
+	})
+
+	t.Run("invalid accounting date with effective date", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+invalid=2024/01/15 Delayed payment
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for invalid accounting date, got nil")
+		}
+	})
+
+	t.Run("account line not starting with spaces", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01 Test entry
+Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for account line not starting with spaces, got nil")
+		}
+		if !contains(err.Error(), "not an account line") {
+			t.Errorf("error should mention not an account line, got: %v", err)
+		}
+	})
+
+	t.Run("account line after metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01 Test entry
+  Expenses:Food  50,00 EUR
+  ; note: this is metadata
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for account after metadata, got nil")
+		}
+		if !contains(err.Error(), "already parsing metadata") {
+			t.Errorf("error should mention already parsing metadata, got: %v", err)
+		}
+	})
+
+	t.Run("effective date ordering", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01=2024/01/20 First entry
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+
+2024/01/05=2024/01/10 Second entry (effective date before first)
+  Expenses:Food  25,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		_, err := New(ledgerFile, false, false, "")
+		if err == nil {
+			t.Fatal("New() expected error for effective date ordering, got nil")
+		}
+		if !contains(err.Error(), "before") {
+			t.Errorf("error should mention date ordering, got: %v", err)
+		}
+	})
+
+	t.Run("entry without name", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+		if l.Entries[0].Name != "" {
+			t.Errorf("Entry name should be empty, got: %s", l.Entries[0].Name)
+		}
+	})
+
+	t.Run("entry with metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+		invoiceFile := filepath.Join(dir, "invoice.pdf")
+
+		if err := os.WriteFile(invoiceFile, []byte("pdf content"), 0644); err != nil {
+			t.Fatalf("failed to write invoice file: %v", err)
+		}
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01 Test entry
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+  ; file: ` + invoiceFile + `
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		l, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+		if l.Entries[0].Metadata["file"] != invoiceFile {
+			t.Errorf("Metadata file should be %s, got: %s", invoiceFile, l.Entries[0].Metadata["file"])
+		}
+	})
+
+	t.Run("noMetadata file not found errors", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01 Test entry
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		// Pass a non-existent noMetadata file - should error
+		_, err := New(ledgerFile, false, false, "/nonexistent/no-metadata.conf")
+		if err == nil {
+			t.Fatal("New() expected error for nonexistent noMetadata file, got nil")
+		}
+	})
+
+	t.Run("empty noMetadata filename is ok", func(t *testing.T) {
+		dir := t.TempDir()
+		ledgerFile := filepath.Join(dir, "test.ledger")
+
+		content := `commodity EUR
+
+account Assets:Bank
+account Expenses:Food
+
+2024/01/01 Test entry
+  Expenses:Food  50,00 EUR
+  Assets:Bank
+`
+		if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		// Pass empty noMetadata filename - should be ok
+		_, err := New(ledgerFile, false, false, "")
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+	})
 }
 
 func TestProcFilename(t *testing.T) {
