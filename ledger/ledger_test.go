@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/frankbraun/ledger-go/util/file"
 )
 
 func TestParseAccount(t *testing.T) {
@@ -441,6 +444,695 @@ account Expenses:Food
 
 		if !l.NoMetadata["Expenses:Food"] {
 			t.Error("NoMetadata should contain Expenses:Food")
+		}
+	})
+}
+
+func TestProcFilename(t *testing.T) {
+	t.Run("file exists and is PDF", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		if err := procFilename(file1); err != nil {
+			t.Errorf("procFilename() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("file does not exist", func(t *testing.T) {
+		err := procFilename("/nonexistent/path/invoice.pdf")
+		if err == nil {
+			t.Fatal("procFilename() expected error for nonexistent file, got nil")
+		}
+		if !contains(err.Error(), "doesn't exist") {
+			t.Errorf("error should mention file doesn't exist, got: %v", err)
+		}
+	})
+
+	t.Run("file exists but not PDF", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "document.txt")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		err := procFilename(file1)
+		if err == nil {
+			t.Fatal("procFilename() expected error for non-PDF file, got nil")
+		}
+		if !contains(err.Error(), "not a PDF") {
+			t.Errorf("error should mention not a PDF, got: %v", err)
+		}
+	})
+}
+
+func TestProcHash(t *testing.T) {
+	t.Run("hash exists strict mode matches", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		content := []byte("test content for hashing")
+		if err := os.WriteFile(file1, content, 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		// Calculate the actual hash using the same function
+		actualHash, err := file.SHA256Sum(file1)
+		if err != nil {
+			t.Fatalf("failed to calculate hash: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"sha256": actualHash,
+			},
+		}
+
+		err = e.procHash("sha256", file1, true, false, 1)
+		if err != nil {
+			t.Errorf("procHash() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("hash exists strict mode mismatch", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"sha256": "wronghash",
+			},
+		}
+
+		err := e.procHash("sha256", file1, true, false, 5)
+		if err == nil {
+			t.Fatal("procHash() expected error for hash mismatch, got nil")
+		}
+		if !contains(err.Error(), "hash mismatch") {
+			t.Errorf("error should mention hash mismatch, got: %v", err)
+		}
+		if !contains(err.Error(), "line 5") {
+			t.Errorf("error should mention line number, got: %v", err)
+		}
+	})
+
+	t.Run("hash exists non-strict mode skips verification", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"sha256": "wronghash", // wrong hash, but non-strict so should pass
+			},
+		}
+
+		err := e.procHash("sha256", file1, false, false, 1)
+		if err != nil {
+			t.Errorf("procHash() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("hash missing with addMissingHashes", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{},
+		}
+
+		err := e.procHash("sha256", file1, false, true, 1)
+		if err != nil {
+			t.Errorf("procHash() error = %v, want nil", err)
+		}
+		if e.Metadata["sha256"] == "" {
+			t.Error("hash should have been added to metadata")
+		}
+	})
+
+	t.Run("hash missing strict mode no addMissingHashes", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{},
+		}
+
+		err := e.procHash("sha256", file1, true, false, 1)
+		if err == nil {
+			t.Fatal("procHash() expected error for missing hash in strict mode, got nil")
+		}
+		if !contains(err.Error(), "no hash for file") {
+			t.Errorf("error should mention no hash, got: %v", err)
+		}
+	})
+
+	t.Run("hash missing non-strict no addMissingHashes passes", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{},
+		}
+
+		err := e.procHash("sha256", file1, false, false, 1)
+		if err != nil {
+			t.Errorf("procHash() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("error calculating hash for missing file", func(t *testing.T) {
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"sha256": "somehash",
+			},
+		}
+
+		err := e.procHash("sha256", "/nonexistent/file.pdf", true, false, 1)
+		if err == nil {
+			t.Fatal("procHash() expected error for missing file, got nil")
+		}
+	})
+
+	t.Run("error calculating hash when adding missing hash", func(t *testing.T) {
+		e := &LedgerEntry{
+			Metadata: map[string]string{},
+		}
+
+		err := e.procHash("sha256", "/nonexistent/file.pdf", false, true, 1)
+		if err == nil {
+			t.Fatal("procHash() expected error for missing file, got nil")
+		}
+	})
+
+	t.Run("sha256Two metadata key", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{},
+		}
+
+		err := e.procHash("sha256Two", file1, false, true, 1)
+		if err != nil {
+			t.Errorf("procHash() error = %v, want nil", err)
+		}
+		if e.Metadata["sha256Two"] == "" {
+			t.Error("sha256Two should have been added to metadata")
+		}
+	})
+}
+
+func TestProcMetadata(t *testing.T) {
+	t.Run("nil metadata passes", func(t *testing.T) {
+		e := &LedgerEntry{
+			Metadata: nil,
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank"},
+				{Name: "Assets:Cash"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("valid file metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file": file1,
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("invalid file metadata - file does not exist", func(t *testing.T) {
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file": "/nonexistent/invoice.pdf",
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err == nil {
+			t.Fatal("procMetadata() expected error for nonexistent file, got nil")
+		}
+		if !contains(err.Error(), "doesn't exist") {
+			t.Errorf("error should mention file doesn't exist, got: %v", err)
+		}
+	})
+
+	t.Run("invalid file metadata - not a PDF", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "document.txt")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file": file1,
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err == nil {
+			t.Fatal("procMetadata() expected error for non-PDF file, got nil")
+		}
+		if !contains(err.Error(), "not a PDF") {
+			t.Errorf("error should mention not a PDF, got: %v", err)
+		}
+	})
+
+	t.Run("fileTwo without file errors", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"fileTwo": file1,
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 5, nil)
+		if err == nil {
+			t.Fatal("procMetadata() expected error for fileTwo without file, got nil")
+		}
+		if !contains(err.Error(), "'fileTwo' defined but not 'file'") {
+			t.Errorf("error should mention fileTwo without file, got: %v", err)
+		}
+		if !contains(err.Error(), "line 5") {
+			t.Errorf("error should mention line number, got: %v", err)
+		}
+	})
+
+	t.Run("valid file and fileTwo metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		file2 := filepath.Join(dir, "invoice2.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("content2"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file":    file1,
+				"fileTwo": file2,
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("invalid fileTwo - file does not exist", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file":    file1,
+				"fileTwo": "/nonexistent/invoice.pdf",
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err == nil {
+			t.Fatal("procMetadata() expected error for nonexistent fileTwo, got nil")
+		}
+		if !contains(err.Error(), "doesn't exist") {
+			t.Errorf("error should mention file doesn't exist, got: %v", err)
+		}
+	})
+
+	t.Run("strict mode hash error propagates", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file": file1,
+				// no sha256 - strict mode should error
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(true, false, 1, nil)
+		if err == nil {
+			t.Fatal("procMetadata() expected error for missing hash in strict mode, got nil")
+		}
+		if !contains(err.Error(), "no hash for file") {
+			t.Errorf("error should mention no hash, got: %v", err)
+		}
+	})
+
+	t.Run("addMissingHashes adds hash", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file": file1,
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(false, true, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+		if e.Metadata["sha256"] == "" {
+			t.Error("sha256 should have been added to metadata")
+		}
+	})
+
+	t.Run("fileTwo hash error propagates", func(t *testing.T) {
+		dir := t.TempDir()
+		file1 := filepath.Join(dir, "invoice1.pdf")
+		file2 := filepath.Join(dir, "invoice2.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("content2"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		// Get actual hash for file1 so it passes
+		hash1, _ := file.SHA256Sum(file1)
+
+		e := &LedgerEntry{
+			Metadata: map[string]string{
+				"file":    file1,
+				"sha256":  hash1,
+				"fileTwo": file2,
+				// no sha256Two - strict mode should error
+			},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		err := e.procMetadata(true, false, 1, nil)
+		if err == nil {
+			t.Fatal("procMetadata() expected error for missing sha256Two in strict mode, got nil")
+		}
+		if !contains(err.Error(), "no hash for file") {
+			t.Errorf("error should mention no hash, got: %v", err)
+		}
+	})
+
+	t.Run("missing file metadata for Expenses warns but passes", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Test Entry",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		// Should pass (just logs warning)
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("missing file metadata for Income warns but passes", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Salary",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank"},
+				{Name: "Income:Salary"},
+			},
+		}
+
+		// Should pass (just logs warning)
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("missing file metadata but account in noMetadata skips warning", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Test Entry",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Expenses:Food"},
+				{Name: "Assets:Bank"},
+			},
+		}
+
+		noMetadata := map[string]bool{"Expenses:Food": true}
+		err := e.procMetadata(false, false, 1, noMetadata)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("missing file metadata for non-Expenses/Income no warning", func(t *testing.T) {
+		e := &LedgerEntry{
+			Date:     time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Name:     "Transfer",
+			Metadata: map[string]string{},
+			Accounts: []LedgerAccount{
+				{Name: "Assets:Bank"},
+				{Name: "Assets:Cash"},
+			},
+		}
+
+		err := e.procMetadata(false, false, 1, nil)
+		if err != nil {
+			t.Errorf("procMetadata() error = %v, want nil", err)
+		}
+	})
+}
+
+func TestValidateSubtree(t *testing.T) {
+	t.Run("empty invoices directory with no files referenced", func(t *testing.T) {
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		seenFiles := make(map[string]bool)
+		if err := validateSubtree(seenFiles); err != nil {
+			t.Errorf("validateSubtree() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("PDF in invoices directory that is referenced", func(t *testing.T) {
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		file1 := filepath.Join("invoices", "invoice1.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		seenFiles := map[string]bool{file1: true}
+		if err := validateSubtree(seenFiles); err != nil {
+			t.Errorf("validateSubtree() error = %v, want nil", err)
+		}
+		// File should be removed from seenFiles after processing
+		if seenFiles[file1] {
+			t.Error("file should have been removed from seenFiles")
+		}
+	})
+
+	t.Run("PDF in invoices directory not referenced warns but passes", func(t *testing.T) {
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		file1 := filepath.Join("invoices", "unreferenced.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		seenFiles := make(map[string]bool)
+		// Should pass (just logs warning, doesn't error)
+		if err := validateSubtree(seenFiles); err != nil {
+			t.Errorf("validateSubtree() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("non-PDF file in invoices directory is ignored", func(t *testing.T) {
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		// Create a non-PDF file
+		file1 := filepath.Join("invoices", "readme.txt")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		seenFiles := make(map[string]bool)
+		if err := validateSubtree(seenFiles); err != nil {
+			t.Errorf("validateSubtree() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("file referenced but not in invoices directory", func(t *testing.T) {
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		seenFiles := map[string]bool{"/some/other/path/invoice.pdf": true}
+		err := validateSubtree(seenFiles)
+		if err == nil {
+			t.Fatal("validateSubtree() expected error for file not in filesystem, got nil")
+		}
+		if !contains(err.Error(), "file referenced in ledger but not found in filesystem") {
+			t.Errorf("error should mention file not found, got: %v", err)
+		}
+	})
+
+	t.Run("invoices directory does not exist", func(t *testing.T) {
+		// Make sure invoices directory doesn't exist
+		os.RemoveAll("invoices")
+
+		seenFiles := make(map[string]bool)
+		err := validateSubtree(seenFiles)
+		if err == nil {
+			t.Fatal("validateSubtree() expected error for missing invoices dir, got nil")
+		}
+		if !contains(err.Error(), "error traversing invoice subtree") {
+			t.Errorf("error should mention traversing error, got: %v", err)
+		}
+	})
+
+	t.Run("PDF in subdirectory of invoices", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join("invoices", "2024"), 0755); err != nil {
+			t.Fatalf("failed to create invoices subdir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		file1 := filepath.Join("invoices", "2024", "invoice1.pdf")
+		if err := os.WriteFile(file1, []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		seenFiles := map[string]bool{file1: true}
+		if err := validateSubtree(seenFiles); err != nil {
+			t.Errorf("validateSubtree() error = %v, want nil", err)
+		}
+		if seenFiles[file1] {
+			t.Error("file should have been removed from seenFiles")
+		}
+	})
+
+	t.Run("multiple PDFs some referenced some not", func(t *testing.T) {
+		if err := os.MkdirAll("invoices", 0755); err != nil {
+			t.Fatalf("failed to create invoices dir: %v", err)
+		}
+		defer os.RemoveAll("invoices")
+
+		file1 := filepath.Join("invoices", "referenced.pdf")
+		file2 := filepath.Join("invoices", "unreferenced.pdf")
+		if err := os.WriteFile(file1, []byte("content1"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+		if err := os.WriteFile(file2, []byte("content2"), 0644); err != nil {
+			t.Fatalf("failed to write test file: %v", err)
+		}
+
+		seenFiles := map[string]bool{file1: true}
+		// Should pass - unreferenced file just logs warning
+		if err := validateSubtree(seenFiles); err != nil {
+			t.Errorf("validateSubtree() error = %v, want nil", err)
+		}
+		if seenFiles[file1] {
+			t.Error("referenced file should have been removed from seenFiles")
 		}
 	})
 }
