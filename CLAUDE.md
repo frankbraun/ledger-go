@@ -23,6 +23,9 @@ ledger-go -file <ledger-file> [options]
 - `-strict` - Enable strict validation (checks accounts/commodities are declared, verifies hashes)
 - `-add-missing-hashes` - Automatically add SHA-256 hashes for invoice files
 - `-no-metadata` - Config file listing accounts that don't require metadata (default: no-metadata.conf)
+- `-price-db` - Read price DB from FILE
+- `-no-pager` - Disables the pager on TTY output
+- `-disable-metadata` - Skip all metadata validation
 
 ## Architecture
 
@@ -35,12 +38,18 @@ ledger-go -file <ledger-file> [options]
 ### Core Data Types (ledger/ledger.go)
 
 - `Ledger` - Full ledger: header comments, commodities, accounts, tags, entries
-- `LedgerEntry` - Single transaction with date, name, accounts, metadata
-- `LedgerAccount` - Account name, amount, commodity
+- `LedgerEntry` - Single transaction with date, name, accounts, metadata, effective date (supports `2006/01/02=2006/01/02` format)
+- `LedgerAccount` - Account name, amount, commodity, price annotations (`@`/`@@`), elided flag (amount was omitted and inferred)
 
 ### Parsing State Machine
 
-The parser processes ledger files in order: header comments → commodities → accounts → tags → entries. Date format is `2006/01/02`.
+The parser processes ledger files in order: header comments → commodities → accounts → tags → entries. Date format is `2006/01/02`. Effective dates use `2006/01/02=2006/01/02` format.
+
+### Price Annotations
+
+Amounts can include price annotations:
+- `@ price` - Per-unit price (e.g., `10 AAPL @ $150.00`)
+- `@@ price` - Total cost (e.g., `10 AAPL @@ $1500.00`)
 
 ### Metadata Validation
 
@@ -48,6 +57,8 @@ Entries can have metadata like:
 ```
     ; file: /path/to/invoice.pdf
     ; sha256: <hash>
+    ; fileTwo: /path/to/second-invoice.pdf
+    ; sha256Two: <hash>
     ; duplicate: true
 ```
 
