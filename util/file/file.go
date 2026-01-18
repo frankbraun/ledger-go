@@ -33,6 +33,7 @@ func hashSum(hash hash.Hash, filename string) (string, error) {
   return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// SHA256Sum returns the hex-encoded SHA-256 hash of the file at filename.
 func SHA256Sum(filename string) (string, error) {
   return hashSum(sha256.New(), filename)
 }
