@@ -37,9 +37,22 @@ ledger-go -file <ledger-file> [options]
 
 ### Core Data Types (ledger/ledger.go)
 
+- `Config` - Configuration for `New()`: Filename, Strict, AddMissingHashes, DisableMetadata, NoMetadataFilename
 - `Ledger` - Full ledger: header comments, commodities, accounts, tags, entries
 - `LedgerEntry` - Single transaction with date, name, accounts, metadata, effective date (supports `2006/01/02=2006/01/02` format)
 - `LedgerAccount` - Account name, amount, commodity, price annotations (`@`/`@@`), elided flag (amount was omitted and inferred)
+
+### Creating a Ledger
+
+```go
+l, err := ledger.New(ledger.Config{
+    Filename:           "path/to/file.ledger",
+    Strict:             true,  // enable strict validation
+    AddMissingHashes:   false, // auto-add SHA256 hashes
+    DisableMetadata:    false, // skip metadata validation
+    NoMetadataFilename: "",    // accounts exempt from metadata
+})
+```
 
 ### Parsing State Machine
 
