@@ -336,7 +336,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -372,7 +372,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -410,7 +410,7 @@ tag receipt
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -441,7 +441,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for out-of-order dates, got nil")
 		}
@@ -466,7 +466,7 @@ account Assets:Bank
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, true, false, "")
+		_, err := New(ledgerFile, true, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for unknown account in strict mode, got nil")
 		}
@@ -490,7 +490,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, true, false, "")
+		_, err := New(ledgerFile, true, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for unknown commodity in strict mode, got nil")
 		}
@@ -500,7 +500,7 @@ account Expenses:Food
 	})
 
 	t.Run("file not found", func(t *testing.T) {
-		_, err := New("/nonexistent/path/file.ledger", false, false, "")
+		_, err := New("/nonexistent/path/file.ledger", false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for nonexistent file, got nil")
 		}
@@ -529,7 +529,7 @@ account Expenses:Food
 			t.Fatalf("failed to write no-metadata file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, noMetadataFile)
+		l, err := New(ledgerFile, false, false, false, noMetadataFile)
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -556,7 +556,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for invalid date format, got nil")
 		}
@@ -579,7 +579,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for invalid effective date format, got nil")
 		}
@@ -602,7 +602,7 @@ invalid=2024/01/15 Delayed payment
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for invalid accounting date, got nil")
 		}
@@ -625,7 +625,7 @@ Expenses:Food  50,00 EUR
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for account line not starting with spaces, got nil")
 		}
@@ -652,7 +652,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for account after metadata, got nil")
 		}
@@ -682,7 +682,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for effective date ordering, got nil")
 		}
@@ -708,7 +708,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -740,7 +740,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -767,7 +767,7 @@ account Expenses:Food
 		}
 
 		// Pass a non-existent noMetadata file - should error
-		_, err := New(ledgerFile, false, false, "/nonexistent/no-metadata.conf")
+		_, err := New(ledgerFile, false, false, false, "/nonexistent/no-metadata.conf")
 		if err == nil {
 			t.Fatal("New() expected error for nonexistent noMetadata file, got nil")
 		}
@@ -791,7 +791,7 @@ account Expenses:Food
 		}
 
 		// Pass empty noMetadata filename - should be ok
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -816,7 +816,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -861,7 +861,7 @@ account Expenses:Tips
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -895,7 +895,7 @@ account Expenses:Tips
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -929,7 +929,7 @@ account Assets:Bank
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		_, err := New(ledgerFile, false, false, "")
+		_, err := New(ledgerFile, false, false, false, "")
 		if err == nil {
 			t.Fatal("New() expected error for unbalanced entry, got nil")
 		}
@@ -955,7 +955,7 @@ account Equity:Opening
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -995,7 +995,7 @@ account Expenses:Food
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1032,7 +1032,7 @@ account Assets:Bitcoin
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1072,7 +1072,7 @@ account Assets:Bitcoin
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1115,7 +1115,7 @@ account Assets:Bitcoin
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1152,7 +1152,7 @@ account Assets:Bitcoin
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1190,7 +1190,7 @@ account Assets:Bitcoin
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1228,7 +1228,7 @@ account Assets:Bitcoin
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
@@ -1284,7 +1284,7 @@ account Equity:Opening
 			t.Fatalf("failed to write test file: %v", err)
 		}
 
-		l, err := New(ledgerFile, false, false, "")
+		l, err := New(ledgerFile, false, false, false, "")
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}

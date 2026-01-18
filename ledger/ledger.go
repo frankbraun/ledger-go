@@ -406,6 +406,7 @@ func parseEntry(
 	previousDate *time.Time,
 	strict bool,
 	addMissingHashes bool,
+	disableMetadata bool,
 	commodities map[string]bool,
 	accounts map[string]bool,
 	noMetadata map[string]bool,
@@ -473,8 +474,10 @@ func parseEntry(
 			if err := e.validateBalance(startLine); err != nil {
 				return nil, err
 			}
-			if err := e.procMetadata(strict, addMissingHashes, *ln-1, noMetadata); err != nil {
-				return nil, err
+			if !disableMetadata {
+				if err := e.procMetadata(strict, addMissingHashes, *ln-1, noMetadata); err != nil {
+					return nil, err
+				}
 			}
 			return &e, nil
 		}
@@ -537,11 +540,12 @@ func (l *Ledger) parseNoMetadataFile(noMetadataFilename string) error {
 
 // New creates a new Ledger from a file, if strict is true, the ledger is
 // validated more strictly. If addMissingHashes is true, missing SHA256
-// hashes are added to the ledger. If noMetadataFilename is not empty, read
+// hashes are added to the ledger. If disableMetadata is true, all metadata
+// validation is skipped. If noMetadataFilename is not empty, read
 // accounts for which no metadata is required from file.
 func New(
 	filename string,
-	strict, addMissingHashes bool,
+	strict, addMissingHashes, disableMetadata bool,
 	noMetadataFilename string,
 ) (*Ledger, error) {
 	var l Ledger
@@ -606,7 +610,7 @@ func New(
 				continue
 			}
 			e, err := parseEntry(scanner, line, &ln, &previousDate, strict,
-				addMissingHashes, l.Commodities, l.Accounts, l.NoMetadata)
+				addMissingHashes, disableMetadata, l.Commodities, l.Accounts, l.NoMetadata)
 			if err != nil {
 				return nil, err
 			}
@@ -617,8 +621,10 @@ func New(
 		return nil, err
 	}
 
-	if err := l.validateMetadata(strict); err != nil {
-		return nil, err
+	if !disableMetadata {
+		if err := l.validateMetadata(strict); err != nil {
+			return nil, err
+		}
 	}
 
 	return &l, nil

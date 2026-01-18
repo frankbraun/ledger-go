@@ -22,11 +22,12 @@ func fileExists(filename string) (bool, error) {
 }
 
 type flags struct {
-	file       string
-	priceDB    string
-	noMetadata string
-	strict     bool
-	noPager    bool
+	file            string
+	priceDB         string
+	noMetadata      string
+	strict          bool
+	noPager         bool
+	disableMetadata bool
 
 	// extensions
 	addMissingHashes bool
@@ -41,6 +42,8 @@ func defineFlags() *flags {
 		"Accounts or commodities not previously declared will cause warnings.")
 	flag.BoolVar(&f.noPager, "no-pager", false,
 		"Disables the pager on TTY output.")
+	flag.BoolVar(&f.disableMetadata, "disable-metadata", false,
+		"Disable all metadata validation.")
 
 	// extensions
 	flag.BoolVar(&f.addMissingHashes, "add-missing-hashes", false,
@@ -89,7 +92,7 @@ func main() {
 	}
 	// parse command line flags
 	flag.Parse()
-	l, err := ledger.New(f.file, f.strict, f.addMissingHashes, f.noMetadata)
+	l, err := ledger.New(f.file, f.strict, f.addMissingHashes, f.disableMetadata, f.noMetadata)
 	if err != nil {
 		fatal(err)
 	}
