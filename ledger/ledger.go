@@ -323,6 +323,16 @@ const (
 
 // Ledger represents the entire ledger, including header comments, commodities,
 // accounts, and entries.
+// Config holds the configuration options for creating a new Ledger.
+type Config struct {
+	Filename           string // Path to the ledger file
+	Strict             bool   // Enable strict validation
+	AddMissingHashes   bool   // Automatically add missing SHA256 hashes
+	DisableMetadata    bool   // Skip all metadata validation
+	NoMetadataFilename string // File listing accounts that don't require metadata
+}
+
+// Ledger represents a parsed ledger file.
 type Ledger struct {
 	HeaderComments []string
 	Commodities    map[string]bool
@@ -538,24 +548,16 @@ func (l *Ledger) parseNoMetadataFile(noMetadataFilename string) error {
 	return scanner.Err()
 }
 
-// New creates a new Ledger from a file, if strict is true, the ledger is
-// validated more strictly. If addMissingHashes is true, missing SHA256
-// hashes are added to the ledger. If disableMetadata is true, all metadata
-// validation is skipped. If noMetadataFilename is not empty, read
-// accounts for which no metadata is required from file.
-func New(
-	filename string,
-	strict, addMissingHashes, disableMetadata bool,
-	noMetadataFilename string,
-) (*Ledger, error) {
+// New creates a new Ledger from a file using the provided configuration.
+func New(cfg Config) (*Ledger, error) {
 	var l Ledger
 	l.Commodities = make(map[string]bool)
 	l.Accounts = make(map[string]bool)
 	l.Tags = make(map[string]bool)
-	if err := l.parseNoMetadataFile(noMetadataFilename); err != nil {
+	if err := l.parseNoMetadataFile(cfg.NoMetadataFilename); err != nil {
 		return nil, err
 	}
-	fp, err := os.Open(filename)
+	fp, err := os.Open(cfg.Filename)
 	if err != nil {
 		return nil, err
 	}
@@ -609,8 +611,8 @@ func New(
 				warning(fmt.Sprintf("line %d: skipping comment", ln))
 				continue
 			}
-			e, err := parseEntry(scanner, line, &ln, &previousDate, strict,
-				addMissingHashes, disableMetadata, l.Commodities, l.Accounts, l.NoMetadata)
+			e, err := parseEntry(scanner, line, &ln, &previousDate, cfg.Strict,
+				cfg.AddMissingHashes, cfg.DisableMetadata, l.Commodities, l.Accounts, l.NoMetadata)
 			if err != nil {
 				return nil, err
 			}
@@ -621,8 +623,8 @@ func New(
 		return nil, err
 	}
 
-	if !disableMetadata {
-		if err := l.validateMetadata(strict); err != nil {
+	if !cfg.DisableMetadata {
+		if err := l.validateMetadata(cfg.Strict); err != nil {
 			return nil, err
 		}
 	}

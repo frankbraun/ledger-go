@@ -92,7 +92,13 @@ func main() {
 	}
 	// parse command line flags
 	flag.Parse()
-	l, err := ledger.New(f.file, f.strict, f.addMissingHashes, f.disableMetadata, f.noMetadata)
+	l, err := ledger.New(ledger.Config{
+		Filename:           f.file,
+		Strict:             f.strict,
+		AddMissingHashes:   f.addMissingHashes,
+		DisableMetadata:    f.disableMetadata,
+		NoMetadataFilename: f.noMetadata,
+	})
 	if err != nil {
 		fatal(err)
 	}
