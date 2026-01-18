@@ -315,6 +315,7 @@ const (
 	parseCommodities
 	parseAccounts
 	parseTags
+	parsePrices
 	parseEntries
 )
 
@@ -322,11 +323,12 @@ const (
 // accounts, and entries.
 // Config holds the configuration options for creating a new Ledger.
 type Config struct {
-	Filename           string // Path to the ledger file
-	Strict             bool   // Enable strict validation
-	AddMissingHashes   bool   // Automatically add missing SHA256 hashes
-	DisableMetadata    bool   // Skip all metadata validation
-	NoMetadataFilename string // File listing accounts that don't require metadata
+	Filename           string   // Path to the ledger file
+	Strict             bool     // Enable strict validation
+	AddMissingHashes   bool     // Automatically add missing SHA256 hashes
+	DisableMetadata    bool     // Skip all metadata validation
+	NoMetadataFilename string   // File listing accounts that don't require metadata
+	AssetAccounts      []string // Account prefixes to track for lot management (e.g., "Assets:Crypto")
 }
 
 // Ledger represents a parsed ledger file.
@@ -335,7 +337,12 @@ type Ledger struct {
 	Commodities    map[string]bool
 	Accounts       map[string]bool
 	Tags           map[string]bool
+	Prices         *PriceHistory
 	Entries        []LedgerEntry
+
+	// Lot tracking
+	Lots          *LotRegistry
+	AssetAccounts []string // Account prefixes tracked for lots
 
 	// config
 	NoMetadata map[string]bool
@@ -545,12 +552,55 @@ func (l *Ledger) parseNoMetadataFile(noMetadataFilename string) error {
 	return scanner.Err()
 }
 
+// parsePriceDirective parses a price directive line.
+// Format: P DATE COMMODITY PRICE PRICECOMMODITY
+// Example: P 2024/01/15 BTC 42000,00 USD
+func (l *Ledger) parsePriceDirective(line string, ln int, strict bool) error {
+	elems := strings.Fields(line)
+	if len(elems) != 5 {
+		return fmt.Errorf("ledger: line %d: invalid price directive format (expected 5 elements, got %d): %s", ln, len(elems), line)
+	}
+
+	// elems[0] is "P"
+	dateStr := elems[1]
+	commodity := elems[2]
+	priceStr := elems[3]
+	priceCommodity := elems[4]
+
+	// Parse date
+	date, err := time.Parse(DateFormat, dateStr)
+	if err != nil {
+		return fmt.Errorf("ledger: line %d: invalid date in price directive: %s", ln, err)
+	}
+
+	// Validate commodity in strict mode
+	if strict && !l.Commodities[commodity] {
+		return fmt.Errorf("ledger: line %d: unknown commodity in price directive: %s", ln, commodity)
+	}
+	if strict && !l.Commodities[priceCommodity] {
+		return fmt.Errorf("ledger: line %d: unknown price commodity in price directive: %s", ln, priceCommodity)
+	}
+
+	// Parse price (handle comma as decimal separator)
+	priceStr = strings.ReplaceAll(priceStr, ",", ".")
+	price, err := strconv.ParseFloat(priceStr, 64)
+	if err != nil {
+		return fmt.Errorf("ledger: line %d: invalid price in price directive: %s", ln, err)
+	}
+
+	l.Prices.AddPrice(commodity, date, price)
+	return nil
+}
+
 // New creates a new Ledger from a file using the provided configuration.
 func New(cfg Config) (*Ledger, error) {
 	var l Ledger
 	l.Commodities = make(map[string]bool)
 	l.Accounts = make(map[string]bool)
 	l.Tags = make(map[string]bool)
+	l.Prices = NewPriceHistory()
+	l.Lots = NewLotRegistry()
+	l.AssetAccounts = cfg.AssetAccounts
 	if err := l.parseNoMetadataFile(cfg.NoMetadataFilename); err != nil {
 		return nil, err
 	}
@@ -599,10 +649,20 @@ func New(cfg Config) (*Ledger, error) {
 				l.Tags[value] = true
 				continue
 			} else {
+				state = parsePrices
+			}
+		}
+		if state == parsePrices {
+			if strings.HasPrefix(line, "P ") {
+				if err := l.parsePriceDirective(line, ln, cfg.Strict); err != nil {
+					return nil, err
+				}
+				continue
+			} else {
 				state = parseEntries
 			}
 		}
-		if state == parseTags || state == parseEntries {
+		if state == parsePrices || state == parseEntries {
 			if strings.HasPrefix(line, ";") {
 				// skip
 				warning(fmt.Sprintf("line %d: skipping comment", ln))
@@ -622,6 +682,13 @@ func New(cfg Config) (*Ledger, error) {
 
 	if !cfg.DisableMetadata {
 		if err := l.validateMetadata(cfg.Strict); err != nil {
+			return nil, err
+		}
+	}
+
+	// Extract lots from entries if asset accounts are configured
+	if len(l.AssetAccounts) > 0 {
+		if err := l.extractLots(); err != nil {
 			return nil, err
 		}
 	}
@@ -744,6 +811,131 @@ func (l *Ledger) validateMetadata(strict bool) error {
 	}
 
 	return nil
+}
+
+// isAssetAccount checks if the account name matches any of the configured asset account prefixes.
+func (l *Ledger) isAssetAccount(accountName string) bool {
+	for _, prefix := range l.AssetAccounts {
+		if strings.HasPrefix(accountName, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractLots processes all entries and creates lots for asset purchases and disposals.
+// A purchase is identified by a positive amount with a price annotation on an asset account.
+// A disposal is identified by a negative amount with a price annotation on an asset account.
+func (l *Ledger) extractLots() error {
+	for _, entry := range l.Entries {
+		date := entry.Date
+		if !entry.EffectiveDate.IsZero() {
+			date = entry.EffectiveDate
+		}
+
+		for _, account := range entry.Accounts {
+			// Skip if not an asset account or no price annotation
+			if !l.isAssetAccount(account.Name) || account.PriceType == "" {
+				continue
+			}
+
+			// Calculate cost basis based on price type
+			var costBasis float64
+			if account.PriceType == "@" {
+				// Per-unit price: total cost = amount * price
+				costBasis = account.Amount * account.PriceAmount
+			} else {
+				// Total cost (@@): cost is the price amount
+				costBasis = account.PriceAmount
+			}
+
+			if account.Amount > 0 {
+				// Purchase: create a new lot
+				lot := &Lot{
+					Commodity:         account.Commodity,
+					AcquisitionDate:   date,
+					OriginalQuantity:  account.Amount,
+					RemainingQuantity: account.Amount,
+					CostBasis:         costBasis,
+					CostPerUnit:       costBasis / account.Amount,
+					Account:           account.Name,
+				}
+				l.Lots.AddLot(lot)
+			} else if account.Amount < 0 {
+				// Disposal: use FIFO to reduce lots
+				quantity := -account.Amount // Make positive
+				proceeds := -costBasis      // Make positive (proceeds from sale)
+
+				_, err := l.Lots.DisposeFIFO(account.Commodity, quantity, date, proceeds)
+				if err != nil {
+					return fmt.Errorf("entry %s %s: %w", date.Format(DateFormat), entry.Name, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// Portfolio creates a Portfolio from the Ledger's parsed data.
+// It uses the Ledger's lots, prices, and extracts cash flows from entries.
+// Returns an error if AssetAccounts is not configured.
+func (l *Ledger) Portfolio() (*Portfolio, error) {
+	if len(l.AssetAccounts) == 0 {
+		return nil, fmt.Errorf("AssetAccounts must be configured to create a Portfolio")
+	}
+
+	p := &Portfolio{
+		Lots:          l.Lots,
+		Prices:        l.Prices,
+		Snapshots:     make(map[string]*PortfolioSnapshot),
+		AssetAccounts: l.AssetAccounts,
+	}
+
+	// Extract cash flows from entries
+	for _, entry := range l.Entries {
+		date := entry.Date
+		if !entry.EffectiveDate.IsZero() {
+			date = entry.EffectiveDate
+		}
+
+		for _, account := range entry.Accounts {
+			// Only process asset accounts with price annotations
+			if !l.isAssetAccount(account.Name) || account.PriceType == "" {
+				continue
+			}
+
+			// Calculate the cash amount based on price type
+			var cashAmount float64
+			if account.PriceType == "@" {
+				cashAmount = account.Amount * account.PriceAmount
+			} else {
+				// @@ total cost
+				if account.Amount < 0 {
+					cashAmount = -account.PriceAmount
+				} else {
+					cashAmount = account.PriceAmount
+				}
+			}
+
+			if account.Amount > 0 {
+				// Purchase: cash flows into the portfolio (deposit)
+				p.CashFlows = append(p.CashFlows, CashFlow{
+					Date:     date,
+					Amount:   cashAmount,
+					FlowType: "deposit",
+				})
+			} else if account.Amount < 0 {
+				// Sale: cash flows out of the portfolio (withdrawal)
+				p.CashFlows = append(p.CashFlows, CashFlow{
+					Date:     date,
+					Amount:   cashAmount, // Already negative from calculation
+					FlowType: "withdrawal",
+				})
+			}
+		}
+	}
+
+	return p, nil
 }
 
 // Print outputs the entire Ledger to stdout.
