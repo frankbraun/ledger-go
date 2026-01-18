@@ -69,7 +69,7 @@ func parseLedgerRC(f *flags) error {
 		return err
 	}
 	s := strings.TrimRight(string(b), "\n")
-	s = strings.Replace(s, "\n", " ", -1)
+	s = strings.ReplaceAll(s, "\n", " ")
 	sb := strings.Split(s, " ")
 	if err := flag.CommandLine.Parse(sb); err != nil {
 		return err

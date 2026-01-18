@@ -39,10 +39,7 @@ func (a *LedgerAccount) Print() {
 		// Print without amount if it was originally elided
 		fmt.Printf("  %s\n", a.Name)
 	} else if a.Commodity != "" {
-		padding := AccountWidth - len(a.Name)
-		if padding < 1 {
-			padding = 1
-		}
+		padding := max(AccountWidth-len(a.Name), 1)
 		buf := strings.Repeat(" ", padding)
 		printSum := strings.ReplaceAll(fmt.Sprintf("%.2f", a.Amount), ".", ",")
 		if a.PriceType != "" {
