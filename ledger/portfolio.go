@@ -19,6 +19,7 @@ type CommodityHolding struct {
 	LotCount              int       // Number of lots making up this holding
 	FirstAcquisition      time.Time // Date of earliest lot
 	LastAcquisition       time.Time // Date of most recent lot
+	NoPriceData           bool      // True if no price data was available (MarketValue = CostBasis)
 }
 
 // PortfolioSnapshot represents complete portfolio state at a point in time.
@@ -106,13 +107,17 @@ func (p *Portfolio) Snapshot(date time.Time) (*PortfolioSnapshot, error) {
 			// Look up price for market value
 			price, err := p.Prices.GetPrice(commodity, date)
 			if err != nil {
-				return nil, fmt.Errorf("portfolio snapshot: %w", err)
-			}
-
-			holding.MarketValue = holding.TotalQuantity * price
-			holding.UnrealizedGain = holding.MarketValue - holding.TotalCostBasis
-			if holding.TotalCostBasis > 0 {
-				holding.UnrealizedGainPercent = (holding.UnrealizedGain / holding.TotalCostBasis) * 100
+				// No price data available - use cost basis as market value
+				holding.NoPriceData = true
+				holding.MarketValue = holding.TotalCostBasis
+				holding.UnrealizedGain = 0
+				holding.UnrealizedGainPercent = 0
+			} else {
+				holding.MarketValue = holding.TotalQuantity * price
+				holding.UnrealizedGain = holding.MarketValue - holding.TotalCostBasis
+				if holding.TotalCostBasis > 0 {
+					holding.UnrealizedGainPercent = (holding.UnrealizedGain / holding.TotalCostBasis) * 100
+				}
 			}
 
 			snapshot.Holdings[commodity] = holding
@@ -186,12 +191,21 @@ func formatPercent(pct float64) string {
 
 // Print writes a formatted representation of the holding to w.
 func (h *CommodityHolding) Print(w io.Writer) {
-	fmt.Fprintf(w, "  %s\n", h.Commodity)
+	if h.NoPriceData {
+		fmt.Fprintf(w, "  %s (no price data)\n", h.Commodity)
+	} else {
+		fmt.Fprintf(w, "  %s\n", h.Commodity)
+	}
 	fmt.Fprintf(w, "    Quantity:           %s\n", formatQuantity(h.TotalQuantity))
 	fmt.Fprintf(w, "    Cost Basis:         %s\n", formatMoney(h.TotalCostBasis))
-	fmt.Fprintf(w, "    Market Value:       %s\n", formatMoney(h.MarketValue))
-	fmt.Fprintf(w, "    Unrealized Gain:    %s (%s)\n",
-		formatMoney(h.UnrealizedGain), formatPercent(h.UnrealizedGainPercent))
+	if h.NoPriceData {
+		fmt.Fprintf(w, "    Market Value:       %s (using cost basis)\n", formatMoney(h.MarketValue))
+		fmt.Fprintf(w, "    Unrealized Gain:    N/A\n")
+	} else {
+		fmt.Fprintf(w, "    Market Value:       %s\n", formatMoney(h.MarketValue))
+		fmt.Fprintf(w, "    Unrealized Gain:    %s (%s)\n",
+			formatMoney(h.UnrealizedGain), formatPercent(h.UnrealizedGainPercent))
+	}
 	fmt.Fprintf(w, "    Avg Cost/Unit:      %s\n", formatMoney(h.WeightedAverageCost))
 	fmt.Fprintf(w, "    Lots:               %d\n", h.LotCount)
 	fmt.Fprintf(w, "    First Acquired:     %s\n", h.FirstAcquisition.Format(DateFormat))

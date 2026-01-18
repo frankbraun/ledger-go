@@ -273,7 +273,7 @@ func TestSnapshot_PartiallyDisposedLot(t *testing.T) {
 	}
 }
 
-func TestSnapshot_NoPriceError(t *testing.T) {
+func TestSnapshot_NoPriceData(t *testing.T) {
 	p := NewPortfolio()
 
 	p.Lots.AddLot(&Lot{
@@ -285,10 +285,25 @@ func TestSnapshot_NoPriceError(t *testing.T) {
 		CostPerUnit:       40000,
 	})
 
-	// No price added
-	_, err := p.Snapshot(time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err == nil {
-		t.Error("expected error for missing price")
+	// No price added - should succeed with NoPriceData flag set
+	snapshot, err := p.Snapshot(time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	btc := snapshot.Holdings["BTC"]
+	if btc == nil {
+		t.Fatal("expected BTC holding")
+	}
+	if !btc.NoPriceData {
+		t.Error("expected NoPriceData to be true")
+	}
+	// Market value should equal cost basis when no price data
+	if btc.MarketValue != btc.TotalCostBasis {
+		t.Errorf("expected MarketValue (%f) to equal TotalCostBasis (%f)", btc.MarketValue, btc.TotalCostBasis)
+	}
+	if btc.UnrealizedGain != 0 {
+		t.Errorf("expected UnrealizedGain to be 0, got %f", btc.UnrealizedGain)
 	}
 }
 
