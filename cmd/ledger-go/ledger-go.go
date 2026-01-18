@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/frankbraun/ledger-go/ledger"
 )
@@ -31,6 +32,10 @@ type flags struct {
 
 	// extensions
 	addMissingHashes bool
+
+	// portfolio
+	portfolio     bool
+	assetAccounts string
 }
 
 func defineFlags() *flags {
@@ -48,6 +53,12 @@ func defineFlags() *flags {
 	// extensions
 	flag.BoolVar(&f.addMissingHashes, "add-missing-hashes", false,
 		"Add missing SHA256 hashes for file metadata")
+
+	// portfolio
+	flag.BoolVar(&f.portfolio, "portfolio", false,
+		"Show portfolio snapshot")
+	flag.StringVar(&f.assetAccounts, "asset-accounts", "",
+		"Comma-separated asset account prefixes for portfolio tracking")
 	return &f
 }
 
@@ -92,15 +103,37 @@ func main() {
 	}
 	// parse command line flags
 	flag.Parse()
+
+	// parse asset accounts
+	var assetAccounts []string
+	if f.assetAccounts != "" {
+		assetAccounts = strings.Split(f.assetAccounts, ",")
+	}
+
 	l, err := ledger.New(ledger.Config{
 		Filename:           f.file,
 		Strict:             f.strict,
 		AddMissingHashes:   f.addMissingHashes,
 		DisableMetadata:    f.disableMetadata,
 		NoMetadataFilename: f.noMetadata,
+		AssetAccounts:      assetAccounts,
 	})
 	if err != nil {
 		fatal(err)
 	}
+
+	if f.portfolio {
+		p, err := l.Portfolio()
+		if err != nil {
+			fatal(err)
+		}
+		snapshot, err := p.Snapshot(time.Now())
+		if err != nil {
+			fatal(err)
+		}
+		snapshot.Print(os.Stdout)
+		return
+	}
+
 	l.Print()
 }

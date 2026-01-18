@@ -26,6 +26,8 @@ ledger-go -file <ledger-file> [options]
 - `-price-db` - Read price DB from FILE
 - `-no-pager` - Disables the pager on TTY output
 - `-disable-metadata` - Skip all metadata validation
+- `-portfolio` - Show portfolio snapshot instead of normal ledger output
+- `-asset-accounts` - Comma-separated asset account prefixes for portfolio tracking (e.g., "Assets:Crypto:,Assets:Stocks:")
 
 ## Architecture
 

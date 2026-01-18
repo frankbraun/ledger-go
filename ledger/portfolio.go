@@ -1,6 +1,11 @@
 package ledger
 
-import "time"
+import (
+	"fmt"
+	"io"
+	"sort"
+	"time"
+)
 
 // CommodityHolding aggregates position in a single commodity.
 type CommodityHolding struct {
@@ -140,4 +145,111 @@ func (p *Portfolio) Snapshot(date time.Time) (*PortfolioSnapshot, error) {
 	p.Snapshots[date.Format(DateFormat)] = snapshot
 
 	return snapshot, nil
+}
+
+// formatMoney formats a float64 as a dollar amount with commas.
+func formatMoney(amount float64) string {
+	negative := amount < 0
+	if negative {
+		amount = -amount
+	}
+
+	// Format with 2 decimal places
+	s := fmt.Sprintf("%.2f", amount)
+
+	// Split into integer and decimal parts
+	parts := make([]byte, 0, len(s)+4)
+	dotIndex := len(s) - 3 // position of the decimal point
+
+	// Add commas to integer part
+	intPart := s[:dotIndex]
+	for i, c := range intPart {
+		if i > 0 && (dotIndex-i)%3 == 0 {
+			parts = append(parts, ',')
+		}
+		parts = append(parts, byte(c))
+	}
+
+	// Add decimal part
+	parts = append(parts, s[dotIndex:]...)
+
+	if negative {
+		return "-$" + string(parts)
+	}
+	return "$" + string(parts)
+}
+
+// formatPercent formats a float64 as a percentage.
+func formatPercent(pct float64) string {
+	return fmt.Sprintf("%.2f%%", pct)
+}
+
+// Print writes a formatted representation of the holding to w.
+func (h *CommodityHolding) Print(w io.Writer) {
+	fmt.Fprintf(w, "  %s\n", h.Commodity)
+	fmt.Fprintf(w, "    Quantity:           %s\n", formatQuantity(h.TotalQuantity))
+	fmt.Fprintf(w, "    Cost Basis:         %s\n", formatMoney(h.TotalCostBasis))
+	fmt.Fprintf(w, "    Market Value:       %s\n", formatMoney(h.MarketValue))
+	fmt.Fprintf(w, "    Unrealized Gain:    %s (%s)\n",
+		formatMoney(h.UnrealizedGain), formatPercent(h.UnrealizedGainPercent))
+	fmt.Fprintf(w, "    Avg Cost/Unit:      %s\n", formatMoney(h.WeightedAverageCost))
+	fmt.Fprintf(w, "    Lots:               %d\n", h.LotCount)
+	fmt.Fprintf(w, "    First Acquired:     %s\n", h.FirstAcquisition.Format(DateFormat))
+	fmt.Fprintf(w, "    Last Acquired:      %s\n", h.LastAcquisition.Format(DateFormat))
+}
+
+// formatQuantity formats a quantity with appropriate decimal places.
+func formatQuantity(q float64) string {
+	// Use up to 8 decimal places, but trim trailing zeros
+	s := fmt.Sprintf("%.8f", q)
+	// Trim trailing zeros after decimal point
+	for len(s) > 1 && s[len(s)-1] == '0' && s[len(s)-2] != '.' {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// Print writes a formatted representation of the portfolio snapshot to w.
+func (s *PortfolioSnapshot) Print(w io.Writer) {
+	fmt.Fprintf(w, "Portfolio Snapshot as of %s\n", s.Date.Format(DateFormat))
+	fmt.Fprintln(w, "================================================================================")
+	fmt.Fprintln(w)
+
+	if len(s.Holdings) == 0 {
+		fmt.Fprintln(w, "No holdings.")
+		return
+	}
+
+	fmt.Fprintln(w, "Holdings:")
+
+	// Sort commodities alphabetically
+	commodities := make([]string, 0, len(s.Holdings))
+	for c := range s.Holdings {
+		commodities = append(commodities, c)
+	}
+	sort.Strings(commodities)
+
+	for i, c := range commodities {
+		s.Holdings[c].Print(w)
+		if i < len(commodities)-1 {
+			fmt.Fprintln(w)
+		}
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "--------------------------------------------------------------------------------")
+	fmt.Fprintln(w, "Summary:")
+	fmt.Fprintf(w, "  Total Cost Basis:     %s\n", formatMoney(s.TotalCostBasis))
+	fmt.Fprintf(w, "  Total Market Value:   %s\n", formatMoney(s.TotalMarketValue))
+	fmt.Fprintf(w, "  Total Unrealized:     %s (%s)\n",
+		formatMoney(s.TotalUnrealizedGain), formatPercent(s.TotalUnrealizedGainPercent))
+
+	if len(s.Allocations) > 0 {
+		fmt.Fprintln(w, "  Allocation:")
+		for _, c := range commodities {
+			fmt.Fprintf(w, "    %s:  %s\n", c, formatPercent(s.Allocations[c]))
+		}
+	}
+
+	fmt.Fprintln(w, "================================================================================")
 }
