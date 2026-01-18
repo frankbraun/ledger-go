@@ -439,3 +439,42 @@ account Assets:Bank
 		t.Errorf("expected ETH cost basis 20000, got %f", ethLot.CostBasis)
 	}
 }
+
+func TestExtractLots_DisposalWithoutPriorLots(t *testing.T) {
+	// Regression test: disposing a commodity with no prior lots should not error.
+	// This handles historical entries from before lot tracking was enabled.
+	// Example: selling ZEC that was acquired before the ledger started tracking lots.
+	content := `commodity EUR
+commodity ZEC
+account Assets:Cash
+account Assets:Savings:Cryptocurrencies:Zcash
+
+2017/05/04 Exchange
+  Assets:Cash
+  Assets:Savings:Cryptocurrencies:Zcash  -1,21932430 ZEC @ 93,00 EUR
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	if err := os.WriteFile(ledgerFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := New(Config{
+		Filename:        ledgerFile,
+		DisableMetadata: true,
+		AssetAccounts:   []string{"Assets:Savings:"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have no lots (disposal was skipped since no prior lots existed)
+	if len(l.Lots.LotsByCommodity["ZEC"]) != 0 {
+		t.Errorf("expected 0 ZEC lots, got %d", len(l.Lots.LotsByCommodity["ZEC"]))
+	}
+
+	// Should have no disposals recorded
+	if len(l.Lots.Disposals) != 0 {
+		t.Errorf("expected 0 disposals, got %d", len(l.Lots.Disposals))
+	}
+}

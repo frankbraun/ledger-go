@@ -64,9 +64,17 @@ func (r *LotRegistry) RemainingQuantity(commodity string) float64 {
 // Returns the disposals created and any error.
 // The proceeds are allocated proportionally across lots based on quantity disposed.
 // The lineNumber parameter is used for error messages to indicate the source line in the ledger file.
+// If there are no lots for the commodity, the disposal is skipped (returns nil, nil).
+// This allows historical entries from before lot tracking to be processed without error.
 func (r *LotRegistry) DisposeFIFO(commodity string, quantity float64, disposalDate time.Time, totalProceeds float64, lineNumber int) ([]LotDisposal, error) {
 	if quantity <= 0 {
 		return nil, fmt.Errorf("ledger: line %d: disposal quantity must be positive, got %f", lineNumber, quantity)
+	}
+
+	// If no lots exist for this commodity, skip the disposal silently.
+	// This handles historical entries from before lot tracking was enabled.
+	if len(r.LotsByCommodity[commodity]) == 0 {
+		return nil, nil
 	}
 
 	remaining := r.RemainingQuantity(commodity)

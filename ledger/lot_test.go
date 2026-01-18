@@ -371,10 +371,39 @@ func TestDisposeFIFO_DisposalsAppendedToRegistry(t *testing.T) {
 func TestDisposeFIFO_UnknownCommodity(t *testing.T) {
 	r := NewLotRegistry()
 
+	// Disposing an unknown commodity (no lots) should be silently skipped
+	// This allows historical entries from before lot tracking to be processed
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := r.DisposeFIFO("UNKNOWN", 1.0, disposalDate, 1000, 0)
-	if err == nil {
-		t.Error("expected error for unknown commodity")
+	disposals, err := r.DisposeFIFO("UNKNOWN", 1.0, disposalDate, 1000, 0)
+	if err != nil {
+		t.Errorf("unexpected error for unknown commodity: %v", err)
+	}
+	if disposals != nil {
+		t.Error("expected nil disposals for unknown commodity")
+	}
+}
+
+func TestDisposeFIFO_NoLotsSkipsDisposal(t *testing.T) {
+	// Regression test: disposing a commodity with no prior lots should be skipped
+	// This handles the case where ledger entries exist from before lot tracking was enabled
+	// Example: selling ZEC that was acquired before the ledger started tracking lots
+	r := NewLotRegistry()
+
+	disposalDate := time.Date(2017, 5, 4, 0, 0, 0, 0, time.UTC)
+	disposals, err := r.DisposeFIFO("ZEC", 1.21932430, disposalDate, 113.40, 0)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if disposals != nil {
+		t.Error("expected nil disposals when no lots exist")
+	}
+
+	// Registry should still have no lots and no disposals
+	if len(r.LotsByCommodity["ZEC"]) != 0 {
+		t.Error("expected no ZEC lots in registry")
+	}
+	if len(r.Disposals) != 0 {
+		t.Error("expected no disposals in registry")
 	}
 }
 
