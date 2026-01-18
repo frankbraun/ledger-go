@@ -71,3 +71,12 @@ In strict mode:
 ## Configuration
 
 The tool reads `~/.ledgerrc` for default flags. Paths support `~` expansion.
+
+## Maintaining This Document
+
+When making changes to the codebase, update this file to reflect:
+- New or modified command-line flags (check `cmd/ledger-go/main.go`)
+- Changes to core data types in `ledger/ledger.go`
+- New ledger syntax support (date formats, price annotations, etc.)
+- New metadata fields or validation rules
+- Changes to package structure
