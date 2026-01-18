@@ -582,24 +582,24 @@ func New(cfg Config) (*Ledger, error) {
 			}
 		}
 		if state == parseCommodities {
-			if strings.HasPrefix(line, "commodity ") {
-				l.Commodities[strings.TrimPrefix(line, "commodity ")] = true
+			if value, ok := strings.CutPrefix(line, "commodity "); ok {
+				l.Commodities[value] = true
 				continue
 			} else {
 				state = parseAccounts
 			}
 		}
 		if state == parseAccounts {
-			if strings.HasPrefix(line, "account ") {
-				l.Accounts[strings.TrimPrefix(line, "account ")] = true
+			if value, ok := strings.CutPrefix(line, "account "); ok {
+				l.Accounts[value] = true
 				continue
 			} else {
 				state = parseTags
 			}
 		}
 		if state == parseTags {
-			if strings.HasPrefix(line, "tag ") {
-				l.Tags[strings.TrimPrefix(line, "tag ")] = true
+			if value, ok := strings.CutPrefix(line, "tag "); ok {
+				l.Tags[value] = true
 				continue
 			} else {
 				state = parseEntries
