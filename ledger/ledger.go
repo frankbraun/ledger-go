@@ -325,6 +325,7 @@ const (
 // Config holds the configuration options for creating a new Ledger.
 type Config struct {
 	Filename           string   // Path to the ledger file
+	PriceDBFilename    string   // Path to separate price database file (optional)
 	Strict             bool     // Enable strict validation
 	AddMissingHashes   bool     // Automatically add missing SHA256 hashes
 	DisableMetadata    bool     // Skip all metadata validation
@@ -595,6 +596,35 @@ func (l *Ledger) parsePriceDirective(line string, ln int, strict bool) error {
 	return nil
 }
 
+// parsePriceDBFile parses a separate price database file containing only price directives.
+// The file should contain lines in the format: P DATE COMMODITY PRICE PRICECOMMODITY
+// Empty lines and lines starting with ; (comments) are skipped.
+func (l *Ledger) parsePriceDBFile(filename string, strict bool) error {
+	fp, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer fp.Close()
+
+	scanner := bufio.NewScanner(fp)
+	ln := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		ln++
+		if len(line) == 0 || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "P ") {
+			if err := l.parsePriceDirective(line, ln, strict); err != nil {
+				return fmt.Errorf("price-db: %w", err)
+			}
+		} else {
+			return fmt.Errorf("price-db: line %d: expected price directive (P ...), got: %s", ln, line)
+		}
+	}
+	return scanner.Err()
+}
+
 // New creates a new Ledger from a file using the provided configuration.
 func New(cfg Config) (*Ledger, error) {
 	var l Ledger
@@ -681,6 +711,13 @@ func New(cfg Config) (*Ledger, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
+	}
+
+	// Load prices from separate price-db file if specified
+	if cfg.PriceDBFilename != "" {
+		if err := l.parsePriceDBFile(cfg.PriceDBFilename, cfg.Strict); err != nil {
+			return nil, err
+		}
 	}
 
 	if !cfg.DisableMetadata {

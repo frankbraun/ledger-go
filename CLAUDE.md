@@ -39,7 +39,7 @@ ledger-go -file <ledger-file> [options]
 
 ### Core Data Types (ledger/ledger.go)
 
-- `Config` - Configuration for `New()`: Filename, Strict, AddMissingHashes, DisableMetadata, NoMetadataFilename, AssetAccounts
+- `Config` - Configuration for `New()`: Filename, PriceDBFilename, Strict, AddMissingHashes, DisableMetadata, NoMetadataFilename, AssetAccounts
 - `Ledger` - Full ledger: header comments, commodities, accounts, tags, prices, entries, lots
 - `LedgerEntry` - Single transaction with date, name, accounts, metadata, effective date (supports `2006/01/02=2006/01/02` format)
 - `LedgerAccount` - Account name, amount, commodity, price annotations (`@`/`@@`), elided flag (amount was omitted and inferred)
@@ -49,6 +49,7 @@ ledger-go -file <ledger-file> [options]
 ```go
 l, err := ledger.New(ledger.Config{
     Filename:           "path/to/file.ledger",
+    PriceDBFilename:    "path/to/prices.db", // optional separate price database
     Strict:             true,  // enable strict validation
     AddMissingHashes:   false, // auto-add SHA256 hashes
     DisableMetadata:    false, // skip metadata validation
@@ -77,7 +78,11 @@ P 2024/02/01 BTC 45000,00 USD
 
 Format: `P DATE COMMODITY PRICE PRICECOMMODITY`
 
-Price directives are parsed and stored in `Ledger.Prices` (a `PriceHistory`). In strict mode, commodities must be declared.
+Price directives can be defined in two places:
+1. **In the main ledger file** - after tags, before entries
+2. **In a separate price-db file** - specified via `-price-db` flag or `PriceDBFilename` config
+
+The price-db file should contain only price directives (lines starting with `P `) and comments (lines starting with `;`). Prices from both sources are merged. In strict mode, commodities must be declared in the main ledger file.
 
 ### Metadata Validation
 

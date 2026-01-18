@@ -406,3 +406,249 @@ account Assets:Bank
 		t.Errorf("expected no prices, got %d commodities", len(l.Prices.Prices))
 	}
 }
+
+func TestPriceDB_Basic(t *testing.T) {
+	ledgerContent := `commodity BTC
+commodity USD
+account Assets:Bank
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	priceDBContent := `P 2024/01/15 BTC 42000,00 USD
+P 2024/02/01 BTC 45000,00 USD
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	priceDBFile := filepath.Join(tmpDir, "prices.db")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priceDBFile, []byte(priceDBContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: priceDBFile,
+		DisableMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	prices := l.Prices.Prices["BTC"]
+	if len(prices) != 2 {
+		t.Fatalf("expected 2 prices, got %d", len(prices))
+	}
+
+	price, _ := l.Prices.GetPrice("BTC", time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC))
+	if price != 45000 {
+		t.Errorf("expected price 45000, got %f", price)
+	}
+}
+
+func TestPriceDB_WithComments(t *testing.T) {
+	ledgerContent := `commodity BTC
+commodity USD
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	priceDBContent := `; This is a price database file
+P 2024/01/15 BTC 42000,00 USD
+
+; Another comment
+P 2024/02/01 BTC 45000,00 USD
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	priceDBFile := filepath.Join(tmpDir, "prices.db")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priceDBFile, []byte(priceDBContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: priceDBFile,
+		DisableMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	prices := l.Prices.Prices["BTC"]
+	if len(prices) != 2 {
+		t.Fatalf("expected 2 prices, got %d", len(prices))
+	}
+}
+
+func TestPriceDB_MergesWithLedgerPrices(t *testing.T) {
+	ledgerContent := `commodity BTC
+commodity USD
+
+P 2024/01/01 BTC 40000,00 USD
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	priceDBContent := `P 2024/02/01 BTC 45000,00 USD
+P 2024/03/01 BTC 50000,00 USD
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	priceDBFile := filepath.Join(tmpDir, "prices.db")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priceDBFile, []byte(priceDBContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: priceDBFile,
+		DisableMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 3 prices total (1 from ledger + 2 from price-db)
+	prices := l.Prices.Prices["BTC"]
+	if len(prices) != 3 {
+		t.Fatalf("expected 3 prices, got %d", len(prices))
+	}
+
+	// Verify all prices are accessible
+	price, _ := l.Prices.GetPrice("BTC", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	if price != 40000 {
+		t.Errorf("expected price 40000, got %f", price)
+	}
+	price, _ = l.Prices.GetPrice("BTC", time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC))
+	if price != 45000 {
+		t.Errorf("expected price 45000, got %f", price)
+	}
+	price, _ = l.Prices.GetPrice("BTC", time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC))
+	if price != 50000 {
+		t.Errorf("expected price 50000, got %f", price)
+	}
+}
+
+func TestPriceDB_StrictModeValidation(t *testing.T) {
+	ledgerContent := `commodity USD
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	priceDBContent := `P 2024/01/15 BTC 42000,00 USD
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	priceDBFile := filepath.Join(tmpDir, "prices.db")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priceDBFile, []byte(priceDBContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: priceDBFile,
+		Strict:          true,
+		DisableMetadata: true,
+	})
+	if err == nil {
+		t.Error("expected error for unknown commodity in strict mode")
+	}
+}
+
+func TestPriceDB_InvalidLine(t *testing.T) {
+	ledgerContent := `commodity BTC
+commodity USD
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	priceDBContent := `P 2024/01/15 BTC 42000,00 USD
+commodity ETH
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	priceDBFile := filepath.Join(tmpDir, "prices.db")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priceDBFile, []byte(priceDBContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: priceDBFile,
+		DisableMetadata: true,
+	})
+	if err == nil {
+		t.Error("expected error for invalid line in price-db")
+	}
+}
+
+func TestPriceDB_FileNotFound(t *testing.T) {
+	ledgerContent := `commodity USD
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: filepath.Join(tmpDir, "nonexistent.db"),
+		DisableMetadata: true,
+	})
+	if err == nil {
+		t.Error("expected error for nonexistent price-db file")
+	}
+}
+
+func TestPriceDB_EmptyFilename(t *testing.T) {
+	ledgerContent := `commodity USD
+
+2024/01/01 Opening
+  Assets:Bank                                    1000,00 USD
+  Equity:Opening
+`
+	tmpDir := t.TempDir()
+	ledgerFile := filepath.Join(tmpDir, "test.ledger")
+	if err := os.WriteFile(ledgerFile, []byte(ledgerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty PriceDBFilename should be ignored (no error)
+	l, err := New(Config{
+		Filename:        ledgerFile,
+		PriceDBFilename: "",
+		DisableMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(l.Prices.Prices) != 0 {
+		t.Errorf("expected no prices, got %d commodities", len(l.Prices.Prices))
+	}
+}

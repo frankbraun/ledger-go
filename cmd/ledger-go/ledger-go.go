@@ -112,6 +112,7 @@ func main() {
 
 	l, err := ledger.New(ledger.Config{
 		Filename:           f.file,
+		PriceDBFilename:    f.priceDB,
 		Strict:             f.strict,
 		AddMissingHashes:   f.addMissingHashes,
 		DisableMetadata:    f.disableMetadata,
