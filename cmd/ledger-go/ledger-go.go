@@ -36,9 +36,9 @@ func defineFlags() *flags {
 	var f flags
 	flag.StringVar(&f.file, "file", "", "Read journal data from FILE.")
 	flag.StringVar(&f.priceDB, "price-db", "", "Read price DB from FILE.")
-	flag.StringVar(&f.noMetadata, "no-metadata", "no-metadata.conf", "Read no metadata configruation from FILE.")
+	flag.StringVar(&f.noMetadata, "no-metadata", "no-metadata.conf", "Read no metadata configuration from FILE.")
 	flag.BoolVar(&f.strict, "strict", false,
-		"Accounts or commodities  not  previously  declared  will cause warnings.")
+		"Accounts or commodities not previously declared will cause warnings.")
 	flag.BoolVar(&f.noPager, "no-pager", false,
 		"Disables the pager on TTY output.")
 
