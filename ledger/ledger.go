@@ -57,6 +57,7 @@ func (a *LedgerAccount) Print() {
 
 // LedgerEntry represents a single entry in the ledger with one or more accounts.
 type LedgerEntry struct {
+	LineNumber    int // line number in the ledger file where this entry starts
 	Date          time.Time
 	EffectiveDate time.Time
 	Name          string
@@ -493,6 +494,7 @@ func parseEntry(
 					return nil, err
 				}
 			}
+			e.LineNumber = startLine
 			return &e, nil
 		}
 
@@ -527,6 +529,7 @@ func parseEntry(
 	if err := e.validateBalance(startLine); err != nil {
 		return nil, err
 	}
+	e.LineNumber = startLine
 	return &e, nil
 }
 
@@ -759,7 +762,7 @@ func (l *Ledger) validateMetadata(strict bool) error {
 
 		// make sure no file is referenced twice
 		if seenFiles[entry.Metadata["file"]] {
-			return fmt.Errorf("ledger: duplicate file: %s", entry.Metadata["file"])
+			return fmt.Errorf("ledger: line %d: duplicate file: %s", entry.LineNumber, entry.Metadata["file"])
 		}
 		seenFiles[entry.Metadata["file"]] = true
 
@@ -768,13 +771,13 @@ func (l *Ledger) validateMetadata(strict bool) error {
 			var err error
 			hash, err = file.SHA256Sum(entry.Metadata["file"])
 			if err != nil {
-				return fmt.Errorf("ledger: failed to calculate SHA256 hash for file '%s': %v",
-					entry.Metadata["file"], err)
+				return fmt.Errorf("ledger: line %d: failed to calculate SHA256 hash for file '%s': %v",
+					entry.LineNumber, entry.Metadata["file"], err)
 			}
 		}
 		if _, ok := seenHashes[hash]; ok {
-			return fmt.Errorf("ledger: duplicate hash for files '%s' and '%s'",
-				seenHashes[hash], entry.Metadata["file"])
+			return fmt.Errorf("ledger: line %d: duplicate hash for files '%s' and '%s'",
+				entry.LineNumber, seenHashes[hash], entry.Metadata["file"])
 		}
 		seenHashes[hash] = entry.Metadata["file"]
 
@@ -785,7 +788,7 @@ func (l *Ledger) validateMetadata(strict bool) error {
 
 		// make sure no file is referenced twice
 		if seenFiles[entry.Metadata["fileTwo"]] {
-			return fmt.Errorf("ledger: duplicate file: %s", entry.Metadata["fileTwo"])
+			return fmt.Errorf("ledger: line %d: duplicate file: %s", entry.LineNumber, entry.Metadata["fileTwo"])
 		}
 		seenFiles[entry.Metadata["fileTwo"]] = true
 
@@ -794,13 +797,13 @@ func (l *Ledger) validateMetadata(strict bool) error {
 			var err error
 			hash, err = file.SHA256Sum(entry.Metadata["fileTwo"])
 			if err != nil {
-				return fmt.Errorf("ledger: failed to calculate SHA256 hash for file '%s': %v",
-					entry.Metadata["fileTwo"], err)
+				return fmt.Errorf("ledger: line %d: failed to calculate SHA256 hash for file '%s': %v",
+					entry.LineNumber, entry.Metadata["fileTwo"], err)
 			}
 		}
 		if _, ok := seenHashes[hash]; ok {
-			return fmt.Errorf("ledger: duplicate hash for files '%s' and '%s'",
-				seenHashes[hash], entry.Metadata["fileTwo"])
+			return fmt.Errorf("ledger: line %d: duplicate hash for files '%s' and '%s'",
+				entry.LineNumber, seenHashes[hash], entry.Metadata["fileTwo"])
 		}
 		seenHashes[hash] = entry.Metadata["fileTwo"]
 	}
@@ -866,9 +869,9 @@ func (l *Ledger) extractLots() error {
 				quantity := -account.Amount // Make positive
 				proceeds := -costBasis      // Make positive (proceeds from sale)
 
-				_, err := l.Lots.DisposeFIFO(account.Commodity, quantity, date, proceeds)
+				_, err := l.Lots.DisposeFIFO(account.Commodity, quantity, date, proceeds, entry.LineNumber)
 				if err != nil {
-					return fmt.Errorf("entry %s %s: %w", date.Format(DateFormat), entry.Name, err)
+					return err
 				}
 			}
 		}

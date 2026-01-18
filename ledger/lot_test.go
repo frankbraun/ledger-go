@@ -97,7 +97,7 @@ func TestDisposeFIFO_FullLotDisposal(t *testing.T) {
 	})
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	disposals, err := r.DisposeFIFO("BTC", 1.0, disposalDate, 50000)
+	disposals, err := r.DisposeFIFO("BTC", 1.0, disposalDate, 50000, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestDisposeFIFO_PartialLotDisposal(t *testing.T) {
 	})
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	disposals, err := r.DisposeFIFO("BTC", 0.5, disposalDate, 25000)
+	disposals, err := r.DisposeFIFO("BTC", 0.5, disposalDate, 25000, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestDisposeFIFO_MultipleLots(t *testing.T) {
 
 	// Dispose 1.5 BTC at $55,000 per BTC ($82,500 total)
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	disposals, err := r.DisposeFIFO("BTC", 1.5, disposalDate, 82500)
+	disposals, err := r.DisposeFIFO("BTC", 1.5, disposalDate, 82500, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestDisposeFIFO_InsufficientQuantity(t *testing.T) {
 	})
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := r.DisposeFIFO("BTC", 2.0, disposalDate, 100000)
+	_, err := r.DisposeFIFO("BTC", 2.0, disposalDate, 100000, 0)
 	if err == nil {
 		t.Error("expected error for insufficient quantity")
 	}
@@ -279,7 +279,7 @@ func TestDisposeFIFO_ZeroQuantity(t *testing.T) {
 	})
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := r.DisposeFIFO("BTC", 0, disposalDate, 0)
+	_, err := r.DisposeFIFO("BTC", 0, disposalDate, 0, 0)
 	if err == nil {
 		t.Error("expected error for zero quantity")
 	}
@@ -298,7 +298,7 @@ func TestDisposeFIFO_NegativeQuantity(t *testing.T) {
 	})
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := r.DisposeFIFO("BTC", -1.0, disposalDate, 50000)
+	_, err := r.DisposeFIFO("BTC", -1.0, disposalDate, 50000, 0)
 	if err == nil {
 		t.Error("expected error for negative quantity")
 	}
@@ -318,7 +318,7 @@ func TestDisposeFIFO_RealizedLoss(t *testing.T) {
 
 	// Sell at a loss
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	disposals, err := r.DisposeFIFO("BTC", 1.0, disposalDate, 30000)
+	disposals, err := r.DisposeFIFO("BTC", 1.0, disposalDate, 30000, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -344,14 +344,14 @@ func TestDisposeFIFO_DisposalsAppendedToRegistry(t *testing.T) {
 
 	// First disposal
 	date1 := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
-	_, err := r.DisposeFIFO("BTC", 0.5, date1, 25000)
+	_, err := r.DisposeFIFO("BTC", 0.5, date1, 25000, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Second disposal
 	date2 := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err = r.DisposeFIFO("BTC", 0.5, date2, 30000)
+	_, err = r.DisposeFIFO("BTC", 0.5, date2, 30000, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestDisposeFIFO_UnknownCommodity(t *testing.T) {
 	r := NewLotRegistry()
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	_, err := r.DisposeFIFO("UNKNOWN", 1.0, disposalDate, 1000)
+	_, err := r.DisposeFIFO("UNKNOWN", 1.0, disposalDate, 1000, 0)
 	if err == nil {
 		t.Error("expected error for unknown commodity")
 	}
@@ -401,7 +401,7 @@ func TestDisposeFIFO_SkipsExhaustedLots(t *testing.T) {
 	})
 
 	disposalDate := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
-	disposals, err := r.DisposeFIFO("BTC", 1.0, disposalDate, 60000)
+	disposals, err := r.DisposeFIFO("BTC", 1.0, disposalDate, 60000, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

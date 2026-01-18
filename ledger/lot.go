@@ -63,14 +63,15 @@ func (r *LotRegistry) RemainingQuantity(commodity string) float64 {
 // DisposeFIFO disposes of the specified quantity using FIFO (oldest lots first).
 // Returns the disposals created and any error.
 // The proceeds are allocated proportionally across lots based on quantity disposed.
-func (r *LotRegistry) DisposeFIFO(commodity string, quantity float64, disposalDate time.Time, totalProceeds float64) ([]LotDisposal, error) {
+// The lineNumber parameter is used for error messages to indicate the source line in the ledger file.
+func (r *LotRegistry) DisposeFIFO(commodity string, quantity float64, disposalDate time.Time, totalProceeds float64, lineNumber int) ([]LotDisposal, error) {
 	if quantity <= 0 {
-		return nil, fmt.Errorf("disposal quantity must be positive, got %f", quantity)
+		return nil, fmt.Errorf("ledger: line %d: disposal quantity must be positive, got %f", lineNumber, quantity)
 	}
 
 	remaining := r.RemainingQuantity(commodity)
 	if quantity > remaining {
-		return nil, fmt.Errorf("insufficient quantity: want %f, have %f", quantity, remaining)
+		return nil, fmt.Errorf("ledger: line %d: insufficient quantity for %s: want %f, have %f", lineNumber, commodity, quantity, remaining)
 	}
 
 	var disposals []LotDisposal

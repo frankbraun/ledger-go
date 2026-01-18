@@ -381,7 +381,7 @@ func TestBuildTimeSeries_WithRealizedGains(t *testing.T) {
 	p.Prices.AddPrice("BTC", time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC), 55000)
 
 	// Dispose 1 BTC in February
-	p.Lots.DisposeFIFO("BTC", 1.0, time.Date(2024, 2, 15, 0, 0, 0, 0, time.UTC), 50000)
+	p.Lots.DisposeFIFO("BTC", 1.0, time.Date(2024, 2, 15, 0, 0, 0, 0, time.UTC), 50000, 0)
 
 	startDate := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	endDate := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)

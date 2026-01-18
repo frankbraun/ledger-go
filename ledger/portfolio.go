@@ -106,7 +106,7 @@ func (p *Portfolio) Snapshot(date time.Time) (*PortfolioSnapshot, error) {
 			// Look up price for market value
 			price, err := p.Prices.GetPrice(commodity, date)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("portfolio snapshot: %w", err)
 			}
 
 			holding.MarketValue = holding.TotalQuantity * price
